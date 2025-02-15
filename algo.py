@@ -51,22 +51,18 @@ def subquadratic_div_free(a, b, kt):
     assert kt > 2
 
     def convert_trunc(y, k, n):
-        # print("trunc", y, k, n)
         alpha = math.log2(b)
-        # string = ""
         string = []
         for i in range(1, k + 1):
             ni = n - math.floor(i * alpha)
             ni_1 = n - math.floor((i-1) * alpha)
             t = b * y
-            # string += chars[t // (2**ni_1)]
             string.append(t // (2**ni_1))
             z = t % 2**ni_1
             y = z >> (ni_1 - ni)
         return string
 
-    def convert_rec(a, k, y, n, g):
-        # print("rec", a, k, y, n, g)
+    def convert_rec(k, y, n, g):
         if k <= kt:
             return convert_trunc(y, k, n)
 
@@ -74,16 +70,12 @@ def subquadratic_div_free(a, b, kt):
         kl = k - kh + 1
         nh = (4 * g * (b ** kh)).bit_length()
         nl = (4 * g * (b ** kl)).bit_length()
-        # ah = math.floor(a * b**(kh - k))
-        # al = a % (b**kl)
-        ah = al = 0
         yh = math.floor(y * 2**(nh-n))
         yl = ((y*b**(k-kl)) % (2**n)) >> (n-nl)
-        sh = convert_rec(ah, kh, yh, nh, g)
-        sl = convert_rec(al, kl, yl, nl, g)
+        sh = convert_rec(kh, yh, nh, g)
+        sl = convert_rec(kl, yl, nl, g)
 
         if sh[-1] == b-1 and sl[0] == 0:
-            print("a")
             # add 1 mod b^kh
             carry = 1
             for i in range(len(sh) - 1, -1, -1):
@@ -97,11 +89,32 @@ def subquadratic_div_free(a, b, kt):
     # if a is a power of b, b ** k == a, but we want a < b ** k
     # ceil is required because of float imprecision
     k = math.ceil(math.log(a, b)) + 1
-    g = max(math.ceil(math.log2(k)) + 1, kt)
+    #todo: does it matter ?
+    g = max(kt, math.ceil(math.log2((k-3)/(kt-3)))) if k > 3 else max(math.ceil(math.log2(k)) + 1, kt)
     # g = max(kt, math.ceil(math.log2((k - 3) / (kt - 3))))
     n = (4 * g * b**k).bit_length()
     y = ((a+1) * 2**n) // (b**k) - 1
-    return "".join(map(lambda x: chars[x], convert_rec(a, k, y, n, g)))
+
+    res = convert_rec(k, y, n, g)
+    for i, x in enumerate(res):
+        if x != 0:
+            res = res[i:]
+            break
+    return "".join(map(lambda x: chars[x], res))
 
 
-print(subquadratic_div_free(1000, 10, 4))
+# print(subquadratic_div_free(1000, 10, 3))
+import time
+A = 100000000000000000000000000000000000000000000000000000000000000000000000000000000
+dA = 200000
+
+t = time.monotonic()
+for i in range(A, A + dA):
+    subquadratic_div_free(i, 10, 20)
+print(time.monotonic() - t)
+
+t = time.monotonic()
+for i in range(A, A + dA):
+    naive(i, 10)
+print(time.monotonic() - t)
+
