@@ -27,14 +27,18 @@ fn size_in_base_upper_bound(bit_count: usize, base: u8) usize {
 	return int(f(bit_count) * log(2, base)) + 1;
 }
 pub fn main() !void {
+	defer _ = gpa.deinit();
 	const args = try std.process.argsAlloc(allocator);
+	defer std.process.argsFree(allocator, args);
 
 	var a = try Managed.init(allocator);
 	try a.set(1);
+	defer a.deinit();
 
 	if(args.len == 1) {
 		for(10000..100000) |i| {
-			std.debug.print("i: {}\n", .{i});
+			if(i % 1000 == 0)
+				std.debug.print("i: {}\n", .{i});
 			var b = try a.clone();
 			try b.shiftLeft(&b, i);
 			const string1 = try subquadratic(arena.allocator(), &b, 10);
@@ -45,20 +49,24 @@ pub fn main() !void {
 		}
 		return;
 	}
-	const num = try std.fmt.parseInt(usize, args[1], 10);
+	const algo = try std.fmt.parseInt(usize, args[1], 10);
+	const num = try std.fmt.parseInt(usize, args[2], 10);
 	try a.shiftLeft(&a, num);
 	
-	const string = try a.toString(arena.allocator(), 10, .upper);
-	// const string = try subquadratic_div_free(allocator, a.toConst(), 10, digits_per_limb);
-	const string2 = try subquadratic(arena.allocator(), &a, 10);
-	std.debug.print("1: {s}\n\n", .{string});
-	std.debug.print("2: {s}\n\n", .{string2});
-	std.debug.print("eql: {}\n", .{std.mem.eql(u8, string, string2)});
-	//
-  	// std.debug.print("res: {s}\n", .{string});
-	// std.mem.doNotOptimizeAway(&string);
+	const string = try switch(algo) {
+		0 => subquadratic(arena.allocator(), &a, 10),
+		1 => subquadratic_iter(arena.allocator(), &a, 10),
+		2 => subquadratic_div_free(allocator, a.toConst(), 10, digits_per_limb),
+		3 => div_free_naive_trunc(arena.allocator(), a.toConst(), 10),
+		else => @panic("unknown algo")
+	};
 
-	// bench(a)
+	// std.debug.print("1: {s}\n\n", .{string});
+	// std.debug.print("2: {s}\n\n", .{string2});
+	// std.debug.print("eql: {}\n", .{std.mem.eql(u8, string, string2)});
+
+	std.mem.doNotOptimizeAway(&string);
+	arena.deinit();
 }
 
 fn subquadratic(all: std.mem.Allocator, a: *Managed, b: u8) ![]u8 {
@@ -83,8 +91,7 @@ fn subquadratic(all: std.mem.Allocator, a: *Managed, b: u8) ![]u8 {
 	return string;
 }
 fn subquadratic_iter(all: std.mem.Allocator, A: *Managed, b: u8) ![]u8 {
-	// all = std.heap.ArenaAllocator.init(all).allocator()
-	var full_string = try allocator.alloc(u8, size_in_base_upper_bound(A.bitCountAbs(), 10));
+	var full_string = try all.alloc(u8, size_in_base_upper_bound(A.bitCountAbs(), 10));
 	@memset(full_string, 0);
 
 	var r = try Managed.init(all);
@@ -99,10 +106,11 @@ fn subquadratic_iter(all: std.mem.Allocator, A: *Managed, b: u8) ![]u8 {
 	};
 
 	// TODO: proove that
-	const max_depth = int(@ceil(log(size_in_base_upper_bound(A.bitCountAbs(), 10), 2) - log(digits_per_limb, 2)));
-	std.debug.print("expecting a max depth of {}\n", .{max_depth});
+	const max_depth = int(@ceil(log(size_in_base_upper_bound(A.bitCountAbs(), 10), 2) - log(digits_per_limb, 2))) + 1;
 	var stack = try allocator.alloc(StackItem, std.math.pow(usize, 2, max_depth));
 	var new_stack = try allocator.alloc(StackItem, std.math.pow(usize, 2, max_depth));
+	defer allocator.free(stack);
+	defer allocator.free(new_stack);
 	var stack_i: usize = 0;
 	var new_stack_i: usize = 0;
 
@@ -114,10 +122,18 @@ fn subquadratic_iter(all: std.mem.Allocator, A: *Managed, b: u8) ![]u8 {
 	};
 	stack_i += 1;
 
+	// TODO: after each depth, the cache can be cleared, so bases can be reused
+	var base_cache = std.AutoHashMap(usize, Managed).init(all);
+	defer {
+		var it = base_cache.valueIterator();
+		while(it.next()) |cached| {
+			cached.deinit();
+		}
+		base_cache.deinit();
+	}
+
 	var depth: usize = 0;
 	while(stack_i > 0) {
-		std.debug.print("depth: {}\n", .{depth});
-		std.debug.print("stack len: {}\n", .{stack_i});
 		while(stack_i > 0) {
 			stack_i -= 1;
 			const item = stack[stack_i];
@@ -139,21 +155,26 @@ fn subquadratic_iter(all: std.mem.Allocator, A: *Managed, b: u8) ![]u8 {
 					value /= b;
 					i -= 1;
 				}
+				a.deinit();
 				continue;
 			}
 
 
-			try base.set(b);
-			try base.pow(&base, @intCast(k));
-			try a.divFloor(&r, &a, &base);
+			const base_num = blk: {
+				if(base_cache.contains(k)) 
+					break :blk base_cache.getPtr(k).?;
+				try base.set(b);
+				try base.pow(&base, @intCast(k));
+				try base_cache.put(k, try base.clone());
+				break :blk &base;
+			};
+			try a.divFloor(&r, &a, base_num);
 
-			// try subquadratic_rec(all, k - k / 2, string[0..string.len - k], &q, b);
 			new_stack[new_stack_i] = StackItem {
 				.a = a,
 				.k = k - k/2,
 				.string = string[0..string.len - k]
 			};
-			// try subquadratic_rec(all, k / 2, string[string.len - k..], &r, b);
 			new_stack[new_stack_i + 1] = StackItem {
 				.a = try r.clone(),
 				.k = k / 2,
@@ -166,6 +187,7 @@ fn subquadratic_iter(all: std.mem.Allocator, A: *Managed, b: u8) ![]u8 {
 		new_stack_i = 0;
 		depth += 1;
 	}
+	std.debug.assert(depth <= max_depth);
 
 
 	var i: usize = 0;
@@ -215,63 +237,6 @@ fn subquadratic_rec(all: std.mem.Allocator, k: usize, string: []u8, a: *Managed,
 }
 
 
-
-
-
-fn bench(a: Managed) !void {
-	const N = N_bench;
-	const args = try std.process.argsAlloc(allocator);
-
-	if(args.len == 1) {
-		var t = std.time.nanoTimestamp();
-		// for(0..N) |_| {
-		// 	const res = try div_free_naive_trunc(allocator, a.toConst(), 10);
-		// 	std.mem.doNotOptimizeAway(&res);
-		// }
-		std.debug.print("naive trunc: {}µs / run\n", .{@divFloor(std.time.nanoTimestamp() - t, 1000*N)});
-		t = std.time.nanoTimestamp();
-		for(0..N) |_| {
-			const res = try subquadratic_div_free(allocator, a.toConst(), 10, digits_per_limb);
-			std.mem.doNotOptimizeAway(&res);
-		}
-		std.debug.print("rec trunc: {}µs / run\n", .{@divFloor(std.time.nanoTimestamp() - t, 1000*N)});
-		t = std.time.nanoTimestamp();
-		for(0..N) |_| {
-			const res = try a.toString(allocator, 10, .upper);
-			std.mem.doNotOptimizeAway(&res);
-		}
-		std.debug.print("default: {}µs / run\n", .{@divFloor(std.time.nanoTimestamp() - t, 1000*N)});
-		return;
-	}
-	const algo: Algo = switch(args[1][0]) {
-		'0' => .trunc,
-		'1' => .rec_trunc,
-		'2' => .native,
-		else => @panic("wrong algo")
-	};
-
-	switch(algo) {
-		.trunc => {
-			for(0..N) |_| {
-				const res = try div_free_naive_trunc(allocator, a.toConst(), 10);
-				std.mem.doNotOptimizeAway(&res);
-			}
-		},
-		.rec_trunc => {
-			for(0..N) |_| {
-				const res = try subquadratic_div_free(allocator, a.toConst(), 10, digits_per_limb);
-				std.mem.doNotOptimizeAway(&res);
-			}
-		},
-		.native => {
-			for(0..N) |_| {
-				const res = try a.toString(allocator, 10, .upper);
-				std.mem.doNotOptimizeAway(&res);
-			}
-		}
-	}
-}
-
 fn f(n: anytype) f64 {
 	return @floatFromInt(n);
 }
@@ -282,9 +247,6 @@ fn int(fl: anytype) usize {
 fn debug(name: []const u8, n: anytype) void {
 	std.debug.print("{s}: {s}\n", .{name, n.toString(allocator, 10, .upper) catch unreachable});
 }
-
-
-
 
 
 
@@ -316,18 +278,10 @@ fn log(n: anytype, base: anytype) f64 {
 
 
 
-fn convert_rec(all: std.mem.Allocator, limb_buffer: []Limb, string: []u8, b: u8, k: usize, kt: usize, y: *Managed, n: usize, g: usize, abcd: bool) !void {
+fn convert_rec(all: std.mem.Allocator, limb_buffer: []Limb, string: []u8, b: u8, k: usize, kt: usize, y: *Managed, n: usize, g: usize) !void {
 	if(k <= kt) {
-		_ = abcd;
-		// if(abcd)
-		// 	@memset(string, 1)
-		// else
-		// 	@memset(string, 0);
-		// return;
 		return convert_trunc(all, limb_buffer, string, b, y, k, n);
 	}
-
-	// debug("y", y);
 
 	const kh = (k + 1) / 2;
 	const kl = k - kh + 1;
@@ -348,9 +302,9 @@ fn convert_rec(all: std.mem.Allocator, limb_buffer: []Limb, string: []u8, b: u8,
 	try y.truncate(y, .unsigned, n);
 	try yl.shiftRight(y, n-nl);
 
-	try convert_rec(all, limb_buffer, string[0..kh], b, kh, kt, &yh, nh, g, true);
+	try convert_rec(all, limb_buffer, string[0..kh], b, kh, kt, &yh, nh, g);
 	const last_high = string[kh-1];
-	try convert_rec(all, limb_buffer, string[kh-1..], b, kl, kt, &yl, nl, g, false);
+	try convert_rec(all, limb_buffer, string[kh-1..], b, kl, kt, &yl, nl, g);
 	const first_low = string[kh-1];
 
 	if(last_high == b - 1 and first_low == 0) {
@@ -393,7 +347,7 @@ fn subquadratic_div_free(all: std.mem.Allocator, a: Const, b: u8, kt: usize) ![]
 
 
 	// std.debug.print("y: {}\n", .{y.len()});
-	try convert_rec(al.allocator(), &[_]Limb{}, string, b, k, kt, &y, n, g, false);
+	try convert_rec(al.allocator(), &[_]Limb{}, string, b, k, kt, &y, n, g);
 	al.deinit();
 	for(string) |*x|
 		x.* = chars[x.*];
@@ -403,38 +357,7 @@ fn subquadratic_div_free(all: std.mem.Allocator, a: Const, b: u8, kt: usize) ![]
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 fn div_free_naive_trunc(all: std.mem.Allocator, a: Const, b: u8) ![]u8 {
-
 	std.debug.assert(b > 2 and b <= 16);
 	const k: usize = @intFromFloat(@ceil(@as(f64, @floatFromInt(a.bitCountAbs())) * log(2, b)));
 
