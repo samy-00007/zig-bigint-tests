@@ -103,37 +103,35 @@ def subquadratic_div_free(a, b, kt):
     return "".join(map(lambda x: chars[x], res))
 
 
-def subquadratic(a, b, n = 0):
+allk = []
+allkn = []
+def subquadratic(a, b, n=0, s=""):
     if a < b:
+        # print(s)
+        # print()
+        print("prof: " + str(n))
         return chars[a]
-    # k = math.ceil(math.log(a, b) / 2)
     k = math.floor(math.log(a, b) / 2) + 1
-    print(" " * n + str(k) + "   " + str(a))
-    """
-    # print(a, b, k, math.log(a, b)/2, (a.bit_length()) * math.log(2, b)/2)
-    N = a.bit_length() - 1
-    lk = math.floor(N * math.log(2, b)/2) + 1
-    lk2 = N * math.log(2, b)/2
-    hk = math.ceil((N+1) * math.log(2, b)/2)
-    if hk - lk > 0:
-        print(math.log(a, b) /2)
-        print(k)
-        print(lk2, lk, hk)
-        k1 = lk
-        # print(a, b ** (2*(k1-1)), b**(2*k1))
-        print(a, b ** k1)
-        print()
-    """
-    # assert b ** (2*k1 - 2) <= a < b ** (2*k1)
-    # assert b ** (2*k2 - 2) <= a < b ** (2*k2)
+    if k not in allk:
+        allk.append(k)
+        allkn.append(1)
+    else:
+        allkn[allk.index(k)] += 1
+
+    # print(" " * n + str(k) + "   " + str(a))
+
     assert b ** (2*k - 2) <= a < b ** (2*k)
     q = a // (b ** k)
     R = a % (b ** k)
-    r = subquadratic(R, b, n+1)
-    return subquadratic(q, b, n+1) + "0" * (k - len(r)) + r
+    r = subquadratic(R, b, n+1, "(" + s + ") % 10^" + str(k))
+    return subquadratic(q, b, n+1, "(" + s + ") // 10^" + str(k)) + "0" * (k - len(r)) + r
 
 
-print(subquadratic(1 << 10000, 10))
+print(subquadratic(1 << 10000, 10, s="1 << 10000"))
+n_digits = math.floor(math.log(1 << 10000, 10)) + 1
+print(math.log(n_digits, 2))
+# print(allk)
+# print(allkn)
 """
 # print(subquadratic_div_free(1000, 10, 3))
 import time
