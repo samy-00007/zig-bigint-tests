@@ -112,10 +112,6 @@ fn subquadratic_rec(all: std.mem.Allocator, k: usize, string: []u8, a: *Managed,
 
 	try subquadratic_rec(all, k - k / 2, string[0..string.len - k], &q, b);
 	try subquadratic_rec(all, k / 2, string[string.len - k..], &r, b);
-	
-	// try res.appendSlice(left);
-	// for(0..k-right.len) |_| try res.append(0);
-	// try res.appendSlice(right);
 }
 
 
