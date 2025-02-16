@@ -52,11 +52,13 @@ pub fn main() !void {
 	const algo = try std.fmt.parseInt(usize, args[1], 10);
 	const num = try std.fmt.parseInt(usize, args[2], 10);
 	try a.shiftLeft(&a, num);
+
+	const div_free_kt = if(args.len == 4) try std.fmt.parseInt(usize, args[3], 10) else digits_per_limb;
 	
 	const string = try switch(algo) {
 		0 => subquadratic(arena.allocator(), &a, 10),
 		1 => subquadratic_iter(arena.allocator(), &a, 10),
-		2 => subquadratic_div_free(allocator, a.toConst(), 10, digits_per_limb),
+		2 => subquadratic_div_free(allocator, a.toConst(), 10, div_free_kt),
 		3 => div_free_naive_trunc(arena.allocator(), a.toConst(), 10),
 		else => @panic("unknown algo")
 	};
@@ -326,6 +328,7 @@ fn convert_rec(all: std.mem.Allocator, limb_buffer: []Limb, string: []u8, b: u8,
 fn subquadratic_div_free(all: std.mem.Allocator, a: Const, b: u8, kt: usize) ![]const u8 {
 	std.debug.assert(kt > 2);
 	const k: usize = @intFromFloat(@ceil(@as(f64, @floatFromInt(a.bitCountAbs())) * log(2, b)));
+	// TODO: check that number (see the paper's errata)
 	const g = @max(kt, int(@ceil(log(k, 2))) + 1);
 	const n = 2 + int(@ceil(log(g, 2) + f(k) * log(b, 2)));
 
@@ -336,6 +339,7 @@ fn subquadratic_div_free(all: std.mem.Allocator, a: Const, b: u8, kt: usize) ![]
 	var y = try a.toManaged(all);
 	try y.addScalar(&y, 1);
 	try y.shiftLeft(&y, n);
+	std.debug.print("k: {}, base len: {}, y len: {}\n", .{k, base.len(), y.len()});
 	try y.divFloor(&r, &y, &base);
 	try y.addScalar(&y, -1);
 
