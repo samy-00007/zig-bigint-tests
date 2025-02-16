@@ -8,6 +8,7 @@ const Mutable = big.int.Mutable;
 
 var gpa = std.heap.GeneralPurposeAllocator(.{}){};
 const allocator = gpa.allocator();
+var arena = std.heap.ArenaAllocator.init(allocator);
 
 const chars = "0123456789ABCDEF";
 
@@ -26,20 +27,36 @@ fn size_in_base_upper_bound(bit_count: usize, base: u8) usize {
 	return int(f(bit_count) * log(2, base)) + 1;
 }
 pub fn main() !void {
+	const args = try std.process.argsAlloc(allocator);
 
 	var a = try Managed.init(allocator);
 	try a.set(1);
-	try a.shiftLeft(&a, 10000);
 
+	if(args.len == 1) {
+		for(10000..100000) |i| {
+			std.debug.print("i: {}\n", .{i});
+			var b = try a.clone();
+			try b.shiftLeft(&b, i);
+			const string1 = try subquadratic(arena.allocator(), &b, 10);
+			const string2 = try b.toString(arena.allocator(), 10, .upper);
+			if(!std.mem.eql(u8, string1, string2)) {
+				std.debug.panic("i = {}\n", .{i});
+			}
+		}
+		return;
+	}
+	const num = try std.fmt.parseInt(usize, args[1], 10);
+	try a.shiftLeft(&a, num);
 	
-	// var arena = std.heap.ArenaAllocator.init(allocator);
-  	// const string = try subquadratic(arena.allocator(), &a, 10);
-    // const n = (a.bitCountAbs() / math.log2(10)) + 2;
-	const string = try subquadratic(allocator, &a, 10);
-	for(string) |*x|
-		x.* = chars[x.*];
-
-  	std.debug.print("res: {s}\n", .{string});
+	const string = try a.toString(arena.allocator(), 10, .upper);
+	// const string = try subquadratic_div_free(allocator, a.toConst(), 10, digits_per_limb);
+	const string2 = try subquadratic(arena.allocator(), &a, 10);
+	std.debug.print("1: {s}\n\n", .{string});
+	std.debug.print("2: {s}\n\n", .{string2});
+	std.debug.print("eql: {}\n", .{std.mem.eql(u8, string, string2)});
+	//
+  	// std.debug.print("res: {s}\n", .{string});
+	// std.mem.doNotOptimizeAway(&string);
 
 	// bench(a)
 }
