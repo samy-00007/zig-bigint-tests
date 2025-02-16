@@ -103,8 +103,6 @@ def subquadratic_div_free(a, b, kt):
     return "".join(map(lambda x: chars[x], res))
 
 
-allk = []
-allkn = []
 def subquadratic(a, b, n=0, s=""):
     if a < b:
         # print(s)
@@ -112,11 +110,6 @@ def subquadratic(a, b, n=0, s=""):
         print("prof: " + str(n))
         return chars[a]
     k = math.floor(math.log(a, b) / 2) + 1
-    if k not in allk:
-        allk.append(k)
-        allkn.append(1)
-    else:
-        allkn[allk.index(k)] += 1
 
     # print(" " * n + str(k) + "   " + str(a))
 
@@ -127,24 +120,8 @@ def subquadratic(a, b, n=0, s=""):
     return subquadratic(q, b, n+1, "(" + s + ") // 10^" + str(k)) + "0" * (k - len(r)) + r
 
 
+"""
 print(subquadratic(1 << 10000, 10, s="1 << 10000"))
 n_digits = math.floor(math.log(1 << 10000, 10)) + 1
 print(math.log(n_digits, 2))
-# print(allk)
-# print(allkn)
-"""
-# print(subquadratic_div_free(1000, 10, 3))
-import time
-A = 100000000000000000000000000000000000000000000000000000000000000000000000000000000
-dA = 200000
-
-t = time.monotonic()
-for i in range(A, A + dA):
-    subquadratic_div_free(i, 10, 20)
-print(time.monotonic() - t)
-
-t = time.monotonic()
-for i in range(A, A + dA):
-    naive(i, 10)
-print(time.monotonic() - t)
 """
