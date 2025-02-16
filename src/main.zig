@@ -62,28 +62,35 @@ pub fn main() !void {
 }
 
 fn subquadratic(all: std.mem.Allocator, a: *Managed, b: u8) ![]u8 {
-  	const string = try allocator.alloc(u8, size_in_base_upper_bound(a.bitCountAbs(), 10));
+	var string = try allocator.alloc(u8, size_in_base_upper_bound(a.bitCountAbs(), 10));
 	@memset(string, 0);
 
 	const N = a.bitCountAbs() - 1;
 	const k = int(@floor(f(N) * log(2, b) / 2)) + 1;
 
 	try subquadratic_rec(all, k, string, a, b);
+	var i: usize = 0;
+	for(string) |x| {
+		if(x != 0) break;
+		i += 1;
+	}
+	std.mem.copyForwards(u8, string[0..string.len - i], string[i..]);
+	string = try all.realloc(string, string.len - i);
+
+	for(string) |*x|
+		x.* = chars[x.*];
 
 	return string;
 }
 
 fn subquadratic_rec(all: std.mem.Allocator, k: usize, string: []u8, a: *Managed, b: u8) !void {
-	// if(a.toConst().orderAgainstScalar(b) == .lt) {
-	// 	string[string.len - 1] = a.to(u8) catch unreachable;
-	// 	return;
-	// }
-	// TODO: digits_per_limb
-	if(k < 10) {
+	// 2k because the k passed to the function is the number of digits of the bottom half of a
+	if(2*k < digits_per_limb) {
+		std.debug.assert(a.len() <= 1);
+
 		// not string.len - 1 to avoid overflow
 		var i = string.len;
 		var value = a.limbs[0]; // k < digits_per_limb => a is contained in one limb
-		std.debug.assert(a.len() <= 1);
 
 		while(value > 0) {
 			string[i - 1] = @truncate(value % b);
@@ -91,15 +98,6 @@ fn subquadratic_rec(all: std.mem.Allocator, k: usize, string: []u8, a: *Managed,
 			i -= 1;
 		}
 		return;
-	}
-	debug("a", a);
-	std.debug.print("k: {}\n", .{k});
-	const N = a.bitCountAbs() - 1;
-	std.debug.print("real k: {}\n", .{int(@floor(f(N) * log(2, b) / 2)) + 1});
-	std.debug.print("string: {}\n\n", .{string.len});
-	if(k == 0) {
-		debug("a", a);
-		@panic("");
 	}
 	var q = try Managed.init(all);
 	var r = try Managed.init(all);
