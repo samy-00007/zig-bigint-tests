@@ -82,6 +82,105 @@ fn subquadratic(all: std.mem.Allocator, a: *Managed, b: u8) ![]u8 {
 
 	return string;
 }
+fn subquadratic_iter(all: std.mem.Allocator, A: *Managed, b: u8) ![]u8 {
+	// all = std.heap.ArenaAllocator.init(all).allocator()
+	var full_string = try allocator.alloc(u8, size_in_base_upper_bound(A.bitCountAbs(), 10));
+	@memset(full_string, 0);
+
+	var r = try Managed.init(all);
+	var base = try Managed.init(all);
+	defer r.deinit();
+	defer base.deinit();
+
+	const StackItem = struct {
+		a: Managed,
+		k: usize,
+		string: []u8
+	};
+
+	// TODO: proove that
+	const max_depth = int(@ceil(log(size_in_base_upper_bound(A.bitCountAbs(), 10), 2) - log(digits_per_limb, 2)));
+	std.debug.print("expecting a max depth of {}\n", .{max_depth});
+	var stack = try allocator.alloc(StackItem, std.math.pow(usize, 2, max_depth));
+	var new_stack = try allocator.alloc(StackItem, std.math.pow(usize, 2, max_depth));
+	var stack_i: usize = 0;
+	var new_stack_i: usize = 0;
+
+	const N = A.bitCountAbs() - 1;
+	stack[0] = StackItem {
+		.a = try A.clone(),
+		.k = int(@floor(f(N) * log(2, b) / 2)) + 1,
+		.string = full_string
+	};
+	stack_i += 1;
+
+	var depth: usize = 0;
+	while(stack_i > 0) {
+		std.debug.print("depth: {}\n", .{depth});
+		std.debug.print("stack len: {}\n", .{stack_i});
+		while(stack_i > 0) {
+			stack_i -= 1;
+			const item = stack[stack_i];
+			var a = item.a;
+			const k = item.k;
+			const string = item.string;
+
+
+			// 2k because the k passed to the function is the number of digits of the bottom half of a
+			if(2*k < digits_per_limb) {
+				std.debug.assert(a.len() <= 1);
+
+				// not string.len - 1 to avoid overflow
+				var i = string.len;
+				var value = a.limbs[0]; // k < digits_per_limb => a is contained in one limb
+
+				while(value > 0) {
+					string[i - 1] = @truncate(value % b);
+					value /= b;
+					i -= 1;
+				}
+				continue;
+			}
+
+
+			try base.set(b);
+			try base.pow(&base, @intCast(k));
+			try a.divFloor(&r, &a, &base);
+
+			// try subquadratic_rec(all, k - k / 2, string[0..string.len - k], &q, b);
+			new_stack[new_stack_i] = StackItem {
+				.a = a,
+				.k = k - k/2,
+				.string = string[0..string.len - k]
+			};
+			// try subquadratic_rec(all, k / 2, string[string.len - k..], &r, b);
+			new_stack[new_stack_i + 1] = StackItem {
+				.a = try r.clone(),
+				.k = k / 2,
+				.string = string[string.len - k..]
+			};
+			new_stack_i += 2;
+		}
+		@memcpy(stack[0..new_stack_i], new_stack[0..new_stack_i]);
+		stack_i = new_stack_i;
+		new_stack_i = 0;
+		depth += 1;
+	}
+
+
+	var i: usize = 0;
+	for(full_string) |x| {
+		if(x != 0) break;
+		i += 1;
+	}
+	std.mem.copyForwards(u8, full_string[0..full_string.len - i], full_string[i..]);
+	full_string = try all.realloc(full_string, full_string.len - i);
+
+	for(full_string) |*x|
+		x.* = chars[x.*];
+
+	return full_string;
+}
 
 fn subquadratic_rec(all: std.mem.Allocator, k: usize, string: []u8, a: *Managed, b: u8) !void {
 	// 2k because the k passed to the function is the number of digits of the bottom half of a
@@ -106,6 +205,7 @@ fn subquadratic_rec(all: std.mem.Allocator, k: usize, string: []u8, a: *Managed,
 	defer r.deinit();
 	defer base.deinit();
 
+	// TODO: better memory for base, q and r
 	try base.set(b);
 	try base.pow(&base, @intCast(k));
 	try q.divFloor(&r, a, &base);
