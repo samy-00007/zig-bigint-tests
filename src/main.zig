@@ -26,7 +26,49 @@ const Algo = enum {
 fn size_in_base_upper_bound(bit_count: usize, base: u8) usize {
 	return int(f(bit_count) * log(2, base)) + 1;
 }
+
+const div = @import("div.zig");
+
 pub fn main() !void {
+	// defer _ = gpa.deinit();
+	var a = try Managed.init(allocator);
+	var b = try Managed.init(allocator);
+	try a.set(1);
+	try a.shiftLeft(&a, 20000000);
+	try a.addScalar(&a, -1);
+	// try a.setString(10, "105423618548421968754897441896456184123456789485461848674631841264781721614848182658128446216484684684");
+	// try a.pow(&a, 300);
+	// try a.pow(&a, 10);
+	// try a.pow(&a, 200);
+	try b.set(1);
+	try b.shiftLeft(&b, 2000000);
+	try b.addScalar(&b, -std.math.maxInt(Limb));
+	// try b.pow(&b, 2);
+	try b.shiftLeft(&b, 5000000);
+	// try b.setString(10, "123482318184318441235478188484");
+	// try b.pow(&b, 200);
+	// try a.pow(&a, 10);
+	std.debug.print("{} {}\n", .{a.len(), b.len()});
+	// debug("a", a);
+	// debug("b", b);
+	const res = try div.unbalanced_division(allocator, &a, &b);
+	// const res = try div.recursive_div_rem(arena.allocator(), &a, &b);
+	var q = try Managed.init(allocator);
+	var r = try Managed.init(allocator);
+	try q.divFloor(&r, &a, &b);
+	// debug("q", res.q);
+	// debug("r", res.r);
+	std.debug.print("{} {}\n", .{res.q.len(), res.r.len()});
+	std.debug.print("{} {}\n", .{q.len(), r.len()});
+
+	std.debug.assert(q.eql(res.q));
+	std.debug.assert(r.eql(res.r));
+
+}
+
+
+
+pub fn _main() !void {
 	defer _ = gpa.deinit();
 	const args = try std.process.argsAlloc(allocator);
 	defer std.process.argsFree(allocator, args);
@@ -246,8 +288,9 @@ fn int(fl: anytype) usize {
 	return @intFromFloat(fl);
 }
 
-fn debug(name: []const u8, n: anytype) void {
+pub fn debug(name: []const u8, n: anytype) void {
 	std.debug.print("{s}: {s}\n", .{name, n.toString(allocator, 10, .upper) catch unreachable});
+	// std.debug.print("{s}: {s}\n", .{name, subquadratic(arena.allocator(), n, 10) catch unreachable});
 }
 
 
