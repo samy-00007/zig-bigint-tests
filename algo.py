@@ -125,3 +125,217 @@ print(subquadratic(1 << 10000, 10, s="1 << 10000"))
 n_digits = math.floor(math.log(1 << 10000, 10)) + 1
 print(math.log(n_digits, 2))
 """
+
+
+limb_len = 64
+Limb = 2**limb_len
+
+
+# return A > B
+def gt(A, B):
+    if len(A) != len(B):
+        return len(A) > len(B)
+    for x, y in reversed(list(zip(A, B))):
+        if y >= x:
+            return False
+    return True
+
+
+def eq(A, B):
+    if len(A) != len(B):
+        return False
+    for x, y in zip(A, B):
+        if x != y:
+            return False
+    return True
+
+
+def gte(A, B):
+    return eq(A, B) or gt(A, B)
+
+
+# return k such as B * 2^k is normalized
+def get_normalize_k(A):
+    last = A[-1]
+    return limb_len - last.bit_length()
+
+
+def shift_right(A: list[int], k):
+    A = A.copy()
+    limb_k = k // limb_len
+    k %= limb_len
+    for i in range(limb_k):
+        if len(A) == 0:
+            break
+        A.pop(0)
+
+    carry = 0
+    for i, x in reversed(list(enumerate(A))):
+        next_carry = (x << (limb_len - k)) & (2**limb_len - 1)
+        A[i] = x >> k | carry
+        if A[i] == 0 and i == len(A) - 1:
+            A.pop(i)
+        carry = next_carry
+    return A
+
+
+def shift_left(A: list[int], k):
+    A = A.copy()
+    limb_k = k // limb_len
+    k %= limb_len
+    for i in range(limb_k):
+        A.insert(0, 0)
+
+    carry = 0
+    for i, x in enumerate(A):
+        r = x << k | carry
+        A[i] = r & (2**limb_len - 1)
+        carry = r >> limb_len
+    if carry > 0:
+        A.append(carry)
+    return A
+
+
+def add(A, B):
+    A = A.copy()
+    carry = 0
+    for i in range(len(A)):
+        ai = A[i]
+        bi = 0 if i >= len(B) else B[i]
+        r = ai + bi + carry
+        A[i] = r % (2**limb_len)
+        carry = r // (2**limb_len)
+    if carry > 0:
+        A.append(carry)
+    return A
+
+
+def sub(A, B):
+    if gt(B, A):
+        d, _ = sub(B, A)
+        return d, -1
+    A = A.copy()
+    carry = 0
+    for i in range(len(A)):
+        ai = A[i]
+        bi = 0 if i >= len(B) else B[i]
+        r = ai - bi + carry
+        A[i] = r % (2**limb_len)
+        carry = r // (2**limb_len)
+    while len(A) > 0 and A[-1] == 0:
+        A.pop(-1)
+    return A, 1
+
+
+def mul(A, k):
+    A = A.copy()
+    carry = 0
+    for i in range(len(A)):
+        r = A[i] * k + carry
+        A[i] = r % Limb
+        carry = r // Limb
+    if carry != 0:
+        A.append(carry)
+    return A
+
+
+def mult(A, B):
+    C = [0] * (len(A) + len(B))
+    for i, x in enumerate(B):
+        C = add(C, shift_left(mul(A, x), i * limb_len))
+    while len(C) > 0 and C[-1] == 0:
+        C.pop(-1)
+    return C
+
+
+
+
+# A and B are array of 64 bits integers
+def _basecase_div_rem(A, B):
+    assert get_normalize_k(B) == 0
+
+    if len(B) > len(A):
+        return ([0], A)
+    if eq(A, B):
+        return ([1], [0])
+    n = len(B)
+    m = len(A) - n
+    Q = [0] * (m + 1)
+
+    B1 = shift_left(B, m * limb_len)
+    if gte(A, B1):
+        Q[m] = 1
+        A, _ = sub(A, B1)
+    else:
+        Q.pop(m)
+
+    for i in range(0, m):
+        A += [0] * (m + n - len(A))
+        j = m - 1 - i
+        Q[j] = (A[n + j] * Limb + A[n + j - 1]) // B[n-1]
+        Q[j] = min(Q[j], Limb - 1)
+        Bj = shift_left(B, j * limb_len)
+        qBj = mul(Bj, Q[j])
+        A, signe = sub(A, qBj)
+        while signe == -1 and not eq(A, [0]):
+            Q[j] -= 1
+            A, signe = sub(Bj, A)
+    return Q, A
+
+
+def basecase_div_rem(A, B):
+    k = get_normalize_k(B)
+    A1 = shift_left(A, k)
+    B1 = shift_left(B, k)
+
+    Q1, R1 = _basecase_div_rem(A1, B1)
+    return Q1, shift_right(R1, k)
+
+
+T = 2 # usually between 50 and 200
+def _recursive_div_rem(A, B):
+    n = len(B)
+    m = len(A) - n
+    print(m)
+    if m < T:
+        print(A, B)
+        return _basecase_div_rem(A, B)
+    k = m // 2
+    print('A, B', A, B)
+    B1 = shift_right(B, k * limb_len)
+    print('B1', B1)
+    print()
+    B0 = B[0:k]
+    Q1, R1 = _recursive_div_rem(shift_right(A, 2*k * limb_len), B1)
+    print('abcd')
+
+    A_, signe = sub(add(shift_left(R1, 2 * k * limb_len), A[0:min(len(A), 2*k)]), shift_left(mult(Q1, B0), k * limb_len))
+
+    while signe == -1:
+        Q1, _ = sub(Q1, [1])
+        A_, signe = sub(shift_left(B, k * limb_len), A_)
+
+    print(len(shift_right(A_, k * limb_len)))
+    Q0, R0 = _recursive_div_rem(shift_right(A_, k * limb_len), B1)
+
+    A__, signe = sub(add(shift_left(R0, k * limb_len), A_[0:min(len(A_), k)]), mult(Q0, B0))
+
+    while signe == -1:
+        Q0 = sub(Q0, [1])
+        A__, signe = sub(B, A__)
+
+    return add(shift_left(Q1, k * limb_len), Q0), A__
+
+def recursive_div_rem(A, B):
+    k = get_normalize_k(B)
+    A1 = shift_left(A, k)
+    B1 = shift_left(B, k)
+
+    Q1, R1 = _recursive_div_rem(A1, B1)
+    return Q1, shift_right(R1, k)
+
+
+
+
+
+
