@@ -30,6 +30,17 @@ fn size_in_base_upper_bound(bit_count: usize, base: u8) usize {
 const div = @import("div.zig");
 
 pub fn main() !void {
+	// {
+	// 	var c = try Managed.initSet(allocator, 11);
+	// 	var d = try Managed.initSet(allocator, -2);
+	// 	// try q.divFloor(&r, &c, &d);
+	// 	const res = try div.unbalanced_division(allocator, &c, &d);
+	// 	debug("c", c);
+	// 	debug("d", d);
+	// 	debug("q", res.q);
+	// 	debug("r", res.r);
+	// 	return;
+	// }
 	// defer _ = gpa.deinit();
 	var a = try Managed.init(allocator);
 	var b = try Managed.init(allocator);
@@ -51,8 +62,11 @@ pub fn main() !void {
 	std.debug.print("{} {}\n", .{a.len(), b.len()});
 	// debug("a", a);
 	// debug("b", b);
-	const res = try div.unbalanced_division(allocator, &a, &b);
+	// const res = try div.unbalanced_division(allocator, &a, &b);
+	const res = try div.basecase_div_rem(allocator, &a, &b);
 	// const res = try div.recursive_div_rem(arena.allocator(), &a, &b);
+	
+
 	var q = try Managed.init(allocator);
 	var r = try Managed.init(allocator);
 	try q.divFloor(&r, &a, &b);

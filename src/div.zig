@@ -181,11 +181,26 @@ fn _recursive_div_rem(allocator: Allocator, a__: *Managed, b__: *Managed) !Resul
 	std.debug.assert(n >= m);
 
 	if(m < T) {
-		const res = try _basecase_div_rem(allocator, a.limbs[0..a.len()], b.limbs[0..b.len()]);
-		// const res2 = try __basecase_div_rem(allocator, a, b);
-		// std.debug.assert(res.r.eql(res2.r));
-		// std.debug.assert(res.q.eql(res2.q));
-		return res;
+		const a_limbs = a.limbs[0..a.len()];
+		const b_limbs = b.limbs[0..b.len()];
+		const q_limbs = try allocator.alloc(Limb, calculateLenQ(a_limbs, b_limbs));
+		const res2 = try __basecase_div_rem(allocator, a, b);
+
+		try _basecase_div_rem(allocator, q_limbs, a_limbs, b_limbs);
+
+		const q = Managed {
+			.limbs = q_limbs,
+			.allocator = allocator,
+			.metadata = llnormalize(q_limbs)
+		};
+		a.normalize(a.len());
+
+		std.debug.assert(a.eql(res2.r));
+		std.debug.assert(q.eql(res2.q));
+		return Result {
+			.q = q,
+			.r = a.*
+		};
 	}
 
 	const k = m / 2;
@@ -269,8 +284,15 @@ pub fn recursive_div_rem(allocator: Allocator, a: *Managed, b: *Managed) !Result
 	return res;
 }
 
+fn calculateLenQ(a: []const Limb, b: []const Limb) usize {
+	return a.len - b.len + 1;
+}
+
 // TODO: SvobodaDivision ?
-noinline fn _basecase_div_rem(allocator: Allocator, a: []Limb, b: []const Limb) !Result {
+/// q = a / b rem r
+/// at the end, a is r
+/// a and q must be normalized after calling this function
+noinline fn _basecase_div_rem(allocator: Allocator, q: []Limb, a: []Limb, b: []const Limb) !void {
 	{
 		const order = llcmp(a, b);
 		std.debug.assert(get_normalize_k_limbs(b) == 0);
@@ -282,15 +304,14 @@ noinline fn _basecase_div_rem(allocator: Allocator, a: []Limb, b: []const Limb) 
 
 	const n = b.len;
 	const m = a.len - n;
-	var Q_limbs = try allocator.alloc(Limb, m + 1);
-	defer allocator.free(Q_limbs);
+	std.debug.assert(q.len == m + 1);
 
 	// A >= (B << m * bits)  <=>  (A >> m*bits) >= B ????? TODO (i think yes)
 	if(llcmp(a[m..], b) != -1) {
-		Q_limbs[m] = 1;
+		q[m] = 1;
 		llsuboffsetright(a, a, b, m);
 	} else {
-		Q_limbs = try allocator.realloc(Q_limbs, m);
+		q[m] = 0;
 	}
 
 	const limbs = try allocator.alloc(Limb, b.len + 1);
@@ -304,7 +325,7 @@ noinline fn _basecase_div_rem(allocator: Allocator, a: []Limb, b: []const Limb) 
 		const Q_limb_j = ((@as(TripleLimb, a[n + j]) << (2*limb_bit_size)) + (@as(TripleLimb, a[n + j - 1]) << limb_bit_size) + @as(TripleLimb, a[n + j - 2])) /
 			((@as(DoubleLimb, b[n-1]) << limb_bit_size) + @as(TripleLimb, b[n - 2]));
 		const qj = @as(Limb, @min(Q_limb_j, std.math.maxInt(Limb)));
-		Q_limbs[j] = qj;
+		q[j] = qj;
 
 		if(qj != 0) {
 			var len: usize = 1;
@@ -328,13 +349,14 @@ noinline fn _basecase_div_rem(allocator: Allocator, a: []Limb, b: []const Limb) 
 				// TODO: use llmullimb (maybe better perfs)
 				// A - qjBjB < 0
 				llsuboffsetleft(a, limbs, a, j);
+				// llsuboffset(a, limbs, a, j, 0);
 			} else {
+				// llsuboffset(a, a, limbs, 0, j);
 				llsuboffsetright(a, a, limbs, j);
 			}
 
 			while(signe == -1) {
-				std.debug.print("ttt\n", .{});
-				Q_limbs[j] -= 1;
+				q[j] -= 1;
 				// try a.add(a, b);
 				signe = llcmp(a, b);
 				if(signe == 1) {
@@ -350,26 +372,16 @@ noinline fn _basecase_div_rem(allocator: Allocator, a: []Limb, b: []const Limb) 
 			}
 		}
 	}
-
-	const Q = Const {
-		.limbs = Q_limbs[0..llnormalize(Q_limbs)],
-		// TODO
-		.positive = true
-	};
-	const R = Const {
-		.limbs = a[0..llnormalize(a)],
-		// TODO
-		.positive = true
-	};
-	return Result {
-		.q = try Q.toManaged(allocator),
-		.r = try R.toManaged(allocator)
-	};
 }
 
 
 
-noinline fn __basecase_div_rem(allocator: Allocator, a: *Managed, b: *Managed) !Result {
+// TODO: remove all allocations
+noinline fn __basecase_div_rem(allocator: Allocator, a__: *Managed, b__: *Managed) !Result {
+	var a_ = try a__.clone();
+	var b_ = try b__.clone();
+	var a = &a_;
+	var b = &b_;
 	// std.debug.print("a: {}, b: {}, diff: {}\n", .{a.len(), b.len(), @as(isize, @intCast(a.len())) - @as(isize, @intCast(b.len()))});
 	if(b.order(a.*) == .gt) {
 		return Result {
@@ -464,13 +476,24 @@ noinline fn __basecase_div_rem(allocator: Allocator, a: *Managed, b: *Managed) !
 pub fn basecase_div_rem(allocator: Allocator, a: *Managed, b: *Managed) !Result {
 	const k = get_normalize_k(b.toConst());
 	var a1 = try a.clone();
-	var b1 = try b.clone();
 	try a1.shiftLeft(a, k);
-	try b1.shiftLeft(b, k);
+	try b.shiftLeft(b, k);
 
-	var res = try _basecase_div_rem(allocator, &a1, &b1);
-	try res.r.shiftRight(&res.r, k);
-	return res;
+	const q_limbs = try allocator.alloc(Limb, calculateLenQ(a1.limbs[0..a1.len()], b.limbs[0..b.len()]));
+
+	try _basecase_div_rem(allocator, q_limbs, a1.limbs[0..a1.len()], b.limbs[0..b.len()]);
+	a1.normalize(a1.len());
+	try a1.shiftRight(&a1, k);
+	try b.shiftRight(b, k);
+	const q = Managed {
+		.limbs = q_limbs,
+		.allocator = allocator,
+		.metadata = llnormalize(q_limbs)
+	};
+	return Result {
+		.q = q,
+		.r = a1
+	};
 }
 
 fn get_normalize_k(a: Const) usize {
@@ -504,9 +527,66 @@ fn get_normalize_k_limbs(a: []const Limb) usize {
 
 
 
+/// r = (in[0] << offsets[0] * bits) op0 
+fn llopoffest(r: []Limb, in: [][]const Limb, comptime ops: []const AccOp, offsets: []usize) void {
+	_ = r;
+	assert(in.len == ops.len + 1 and offsets.len == in.len);
+	// TODO
+}
 
 
+/// r = (a << offset_a * limb_bits) - (b << offset_b * limb_bits)
+fn llsubcarryoffset(r: []Limb, a: []const Limb, b: []const Limb, offset_a: usize, offset_b: usize) Limb {
+    @setRuntimeSafety(debug_safety);
+    assert(a.len != 0 and b.len != 0);
+    assert(offset_a + a.len >= offset_b + b.len);
+    assert(r.len >= offset_a + a.len);
 
+	const min_offset = @min(offset_a, offset_b);
+
+    var i: usize = 0;
+    var borrow: Limb = 0;
+
+	while (i < min_offset) : (i += 1) {
+		r[i] = 0;
+	}
+	if(offset_a > offset_b) {
+		while (i < offset_a) : (i += 1) {
+			// TODO: change that
+			const ov1 = @subWithOverflow(0, b[i - offset_b]);
+			r[i] = ov1[0];
+			const ov2 = @subWithOverflow(r[i], borrow);
+			r[i] = ov2[0];
+			borrow = @as(Limb, ov1[1]) + ov2[1];
+		}
+	} else if(offset_b > offset_a) {
+		while (i < offset_b) : (i += 1) {
+			r[i] = a[i - offset_a];
+		}
+	}
+    while (i < offset_b + b.len) : (i += 1) {
+        const ov1 = @subWithOverflow(a[i - offset_a], b[i - offset_b]);
+        r[i] = ov1[0];
+        const ov2 = @subWithOverflow(r[i], borrow);
+        r[i] = ov2[0];
+        borrow = @as(Limb, ov1[1]) + ov2[1];
+    }
+
+    while (i < offset_a + a.len) : (i += 1) {
+        const ov = @subWithOverflow(a[i - offset_a], borrow);
+        r[i] = ov[0];
+        borrow = ov[1];
+    }
+
+    return borrow;
+}
+
+
+fn llsuboffset(r: []Limb, a: []const Limb, b: []const Limb, offset_a: usize, offset_b: usize) void {
+    @setRuntimeSafety(debug_safety);
+    assert(offset_a + a.len > offset_b + b.len or (offset_a + a.len == offset_b + b.len and a[a.len - 1] >= b[b.len - 1]));
+    assert(llsubcarryoffset(r, a, b, offset_a, offset_b) == 0);
+}
 
 
 
