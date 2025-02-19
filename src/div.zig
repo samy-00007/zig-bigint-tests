@@ -186,7 +186,7 @@ fn _recursive_div_rem(allocator: Allocator, a__: *Managed, b__: *Managed) !Resul
 		const q_limbs = try allocator.alloc(Limb, calculateLenQ(a_limbs, b_limbs));
 		const res2 = try __basecase_div_rem(allocator, a, b);
 
-		try _basecase_div_rem(allocator, q_limbs, a_limbs, b_limbs);
+		_basecase_div_rem(q_limbs, a_limbs, b_limbs);
 
 		const q = Managed {
 			.limbs = q_limbs,
@@ -284,29 +284,32 @@ pub fn recursive_div_rem(allocator: Allocator, a: *Managed, b: *Managed) !Result
 	return res;
 }
 
-fn calculateLenQ(a: []const Limb, b: []const Limb) usize {
-	return a.len - b.len + 1;
+fn calculateLenQ(a_len: usize, b_len: usize) usize {
+	return a_len - b_len + 1;
 }
 
-// TODO: SvobodaDivision ?
+/// Algorithm 1.6 (BasecaseDivRem), Modern Computer Arithmetic
 /// q = a / b rem r
-/// at the end, a is r
-/// a and q must be normalized after calling this function
-noinline fn _basecase_div_rem(allocator: Allocator, q: []Limb, a: []Limb, b: []const Limb) !void {
+/// at the end, r is written in a
+/// a and q must be normalized after calling this function TODO: really ?
+/// q.len must be at least calculateLenQ(llnormalize(a), llnormalize(b))
+noinline fn _basecase_div_rem(q: []Limb, a: []Limb, b: []const Limb) void {
 	{
 		const order = llcmp(a, b);
 		std.debug.assert(get_normalize_k_limbs(b) == 0);
-		// TODO necessary ?
+		// if order is 0 or -1, we have a <= b
+		// therefore this function shouldn't have been called
 		std.debug.assert(order == 1);
+		// TODO: useful ?
 		std.debug.assert(llnormalize(a) == a.len);
 		std.debug.assert(llnormalize(b) == b.len);
 	}
-
 	const n = b.len;
 	const m = a.len - n;
 	std.debug.assert(q.len == m + 1);
 
 	// A >= (B << m * bits)  <=>  (A >> m*bits) >= B ????? TODO (i think yes)
+	// step 1
 	if(llcmp(a[m..], b) != -1) {
 		q[m] = 1;
 		llsuboffsetright(a, a, b, m);
@@ -314,62 +317,31 @@ noinline fn _basecase_div_rem(allocator: Allocator, q: []Limb, a: []Limb, b: []c
 		q[m] = 0;
 	}
 
-	const limbs = try allocator.alloc(Limb, b.len + 1);
-	defer allocator.free(limbs);
-
 	for(0..m) |i| {
 		const j = m-1 - i;
-		// const Q_limb_j = ((@as(DoubleLimb, a.limbs[n + j]) << limb_bit_size) + @as(DoubleLimb, a.limbs[n + j - 1])) / @as(DoubleLimb, b.limbs[n-1]);
-		// TODO: quad limb
+
+		// TODO handle small inputs
+		// const Q_limb_j = ((@as(DoubleLimb, a[n + j]) << limb_bit_size) + @as(DoubleLimb, a[n + j - 1])) / @as(DoubleLimb, b[n-1]);
+		// TODO: quad limb ?
 		const TripleLimb = std.meta.Int(.unsigned, 3 * limb_bit_size);
-		const Q_limb_j = ((@as(TripleLimb, a[n + j]) << (2*limb_bit_size)) + (@as(TripleLimb, a[n + j - 1]) << limb_bit_size) + @as(TripleLimb, a[n + j - 2])) /
-			((@as(DoubleLimb, b[n-1]) << limb_bit_size) + @as(TripleLimb, b[n - 2]));
+		// const Q_limb_j = ((@as(TripleLimb, a_limbs[n + j]) << (2*limb_bit_size)) + (@as(TripleLimb, a_limbs[n + j - 1]) << limb_bit_size) + @as(TripleLimb, a_limbs[n + j - 2])) /
+		// 	((@as(DoubleLimb, b[n-1]) << limb_bit_size) + @as(TripleLimb, b[n - 2]));
+		// see exercise 1.20
+		// step 3
+		const Q_limb_j = std.mem.bytesToValue(TripleLimb, a[n+j-2..n+j+1]) / std.mem.bytesToValue(DoubleLimb, b[n-2..n]);
+		// step 4
 		const qj = @as(Limb, @min(Q_limb_j, std.math.maxInt(Limb)));
 		q[j] = qj;
 
-		if(qj != 0) {
-			var len: usize = 1;
-			var carry: DoubleLimb = 0;
-			const b_len = llnormalize(b);
-			for(0..b_len) |k| {
-				const r = @as(DoubleLimb, b[k]) * @as(DoubleLimb, qj) + carry;
-				limbs[k] = @truncate(r);
-				if(limbs[k] != 0)
-					len = k + 1;
-				carry = r >> limb_bit_size;
-			}
-			limbs[b_len] = @truncate(carry);
-			if(carry != 0)
-				len = b_len + 1;
-			// 	problem: to use llmulLimb, i need to zero the array
-			// assert(!llmulLimb(.add, ))
+		// step 5
+		var a_is_negative = llmulLimbOffset(.sub, a, b, qj, j);
 
-			var signe = llcmp(a, limbs[0..len]);
-			if(signe == -1) {
-				// TODO: use llmullimb (maybe better perfs)
-				// A - qjBjB < 0
-				llsuboffsetleft(a, limbs, a, j);
-				// llsuboffset(a, limbs, a, j, 0);
-			} else {
-				// llsuboffset(a, a, limbs, 0, j);
-				llsuboffsetright(a, a, limbs, j);
-			}
-
-			while(signe == -1) {
-				q[j] -= 1;
-				// try a.add(a, b);
-				signe = llcmp(a, b);
-				if(signe == 1) {
-					// |A| > B => A + B < 0
-					llsuboffsetright(a, a, b, j);
-				} else if(signe == -1) {
-					// |A| < B => A + B > 0
-					llsuboffsetleft(a, b, a, j);
-				} else {
-					@memset(a, 0);
-				}
-				signe = -signe;
-			}
+		while(a_is_negative) {
+			q[j] -= 1;
+			// step 8
+			// while a is negative, it is in twos complement
+			// once it becomes positive, the addition overflows
+			a_is_negative = lladdcarryoffsetright(a, a, b, j) == 0;
 		}
 	}
 }
@@ -479,9 +451,9 @@ pub fn basecase_div_rem(allocator: Allocator, a: *Managed, b: *Managed) !Result 
 	try a1.shiftLeft(a, k);
 	try b.shiftLeft(b, k);
 
-	const q_limbs = try allocator.alloc(Limb, calculateLenQ(a1.limbs[0..a1.len()], b.limbs[0..b.len()]));
+	const q_limbs = try allocator.alloc(Limb, calculateLenQ(a1.len(), b.len()));
 
-	try _basecase_div_rem(allocator, q_limbs, a1.limbs[0..a1.len()], b.limbs[0..b.len()]);
+	_basecase_div_rem(q_limbs, a1.limbs[0..a1.len()], b.limbs[0..b.len()]);
 	a1.normalize(a1.len());
 	try a1.shiftRight(&a1, k);
 	try b.shiftRight(b, k);
@@ -616,7 +588,7 @@ fn lladdcarryoffsetright(r: []Limb, a: []const Limb, b: []const Limb, k: usize) 
 		r[i] = a[i];
 	}
 
-    while (i < b.len) : (i += 1) {
+    while (i < k + b.len) : (i += 1) {
         const ov1 = @addWithOverflow(a[i], b[i - k]);
         r[i] = ov1[0];
         const ov2 = @addWithOverflow(r[i], carry);
@@ -799,25 +771,25 @@ const AccOp = enum {
     sub,
 };
 
-/// acc = acc (op) y * xi
+/// acc = acc (op) (y * xi << y_offset * limb_bits)
 /// The result is computed modulo `r.len`.
 /// Returns whether the operation overflowed.
-fn llmulLimb(comptime op: AccOp, acc: []Limb, y: []const Limb, xi: Limb) bool {
+fn llmulLimbOffset(comptime op: AccOp, acc: []Limb, y: []const Limb, xi: Limb, y_offset: usize) bool {
     @setRuntimeSafety(debug_safety);
     if (xi == 0) {
         return false;
     }
 
-    const split = @min(y.len, acc.len);
+    const split = @min(y_offset + y.len, acc.len);
     var a_lo = acc[0..split];
     var a_hi = acc[split..];
 
     switch (op) {
         .add => {
             var carry: Limb = 0;
-            var j: usize = 0;
+            var j: usize = y_offset;
             while (j < a_lo.len) : (j += 1) {
-                a_lo[j] = addMulLimbWithCarry(a_lo[j], y[j], xi, &carry);
+                a_lo[j] = addMulLimbWithCarry(a_lo[j], y[j - y_offset], xi, &carry);
             }
 
             j = 0;
@@ -831,9 +803,9 @@ fn llmulLimb(comptime op: AccOp, acc: []Limb, y: []const Limb, xi: Limb) bool {
         },
         .sub => {
             var borrow: Limb = 0;
-            var j: usize = 0;
+            var j: usize = y_offset;
             while (j < a_lo.len) : (j += 1) {
-                a_lo[j] = subMulLimbWithBorrow(a_lo[j], y[j], xi, &borrow);
+                a_lo[j] = subMulLimbWithBorrow(a_lo[j], y[j - y_offset], xi, &borrow);
             }
 
             j = 0;
