@@ -395,7 +395,7 @@ noinline fn __basecase_div_rem(allocator: Allocator, a__: *Managed, b__: *Manage
 		// const Q_limb_j = ((@as(DoubleLimb, a.limbs[n + j]) << limb_bit_size) + @as(DoubleLimb, a.limbs[n + j - 1])) / @as(DoubleLimb, b.limbs[n-1]);
 		const TripleLimb = std.meta.Int(.unsigned, 3 * limb_bit_size);
 		const Q_limb_j = ((@as(TripleLimb, a.limbs[n + j]) << (2*limb_bit_size)) + (@as(TripleLimb, a.limbs[n + j - 1]) << limb_bit_size) + @as(TripleLimb, a.limbs[n + j - 2])) /
-			((@as(DoubleLimb, b.limbs[n-1]) << limb_bit_size) + @as(TripleLimb, b.limbs[n - 2]));
+			((@as(DoubleLimb, b.limbs[j + n-1]) << limb_bit_size) + @as(TripleLimb, b.limbs[j + n - 2]));
 		const qj = @as(Limb, @min(Q_limb_j, std.math.maxInt(Limb)));
 		Q_limbs[j] = qj;
 

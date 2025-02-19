@@ -75,8 +75,8 @@ pub fn main() !void {
 	std.debug.print("{} {}\n", .{res.q.len(), res.r.len()});
 	std.debug.print("{} {}\n", .{q.len(), r.len()});
 
-	std.debug.assert(q.eql(res.q));
-	std.debug.assert(r.eql(res.r));
+	if(!q.eql(res.q)) @panic("q != res.q");
+	if(!r.eql(res.r)) @panic("r != res.r");
 
 }
 
