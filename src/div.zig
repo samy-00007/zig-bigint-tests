@@ -183,8 +183,7 @@ fn _recursive_div_rem(allocator: Allocator, a__: *Managed, b__: *Managed) !Resul
 	if(m < T) {
 		const a_limbs = a.limbs[0..a.len()];
 		const b_limbs = b.limbs[0..b.len()];
-		const q_limbs = try allocator.alloc(Limb, calculateLenQ(a_limbs, b_limbs));
-		const res2 = try __basecase_div_rem(allocator, a, b);
+		const q_limbs = try allocator.alloc(Limb, calculateLenQ(a.len(), b.len()));
 
 		_basecase_div_rem(q_limbs, a_limbs, b_limbs);
 
@@ -195,8 +194,6 @@ fn _recursive_div_rem(allocator: Allocator, a__: *Managed, b__: *Managed) !Resul
 		};
 		a.normalize(a.len());
 
-		std.debug.assert(a.eql(res2.r));
-		std.debug.assert(q.eql(res2.q));
 		return Result {
 			.q = q,
 			.r = a.*
@@ -293,7 +290,7 @@ fn calculateLenQ(a_len: usize, b_len: usize) usize {
 /// at the end, r is written in a
 /// a and q must be normalized after calling this function TODO: really ?
 /// q.len must be at least calculateLenQ(llnormalize(a), llnormalize(b))
-noinline fn _basecase_div_rem(q: []Limb, a: []Limb, b: []const Limb) void {
+fn _basecase_div_rem(q: []Limb, a: []Limb, b: []const Limb) void {
 	{
 		const order = llcmp(a, b);
 		std.debug.assert(get_normalize_k_limbs(b) == 0);
