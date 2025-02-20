@@ -6,6 +6,11 @@ const Const = big.int.Const;
 const Managed = big.int.Managed;
 const Mutable = big.int.Mutable;
 
+const c = @cImport({
+	@cInclude("stdio.h");
+	@cInclude("gmp.h");
+});
+
 var gpa = std.heap.GeneralPurposeAllocator(.{}){};
 const allocator = gpa.allocator();
 var arena = std.heap.ArenaAllocator.init(allocator);
@@ -28,6 +33,52 @@ fn size_in_base_upper_bound(bit_count: usize, base: u8) usize {
 }
 
 const div = @import("div.zig");
+
+
+export fn alloc(size: usize) ?*anyopaque {
+	const allocated = allocator.alloc(u8, size) catch return null;
+	return @ptrCast(allocated.ptr);
+}
+export fn realloc(ptr: ?*anyopaque, old_size: usize, new_size: usize) ?*anyopaque {
+	const previous = @as([*]u8, @ptrCast(ptr))[0..old_size];
+	const new = allocator.realloc(previous, new_size) catch return null;
+	return new.ptr;
+}
+export fn free(ptr: ?*anyopaque, size: usize) void {
+	if(ptr == null) return;
+	allocator.free(@as([*]u8, @ptrCast(ptr))[0..size]);
+}
+
+pub fn ___main() !void {
+	c.mp_set_memory_functions(&alloc, &realloc, &free);
+
+	var a: c.mpz_t = undefined;
+	var b: c.mpz_t = undefined;
+	var q: c.mpz_t = undefined;
+	var r: c.mpz_t = undefined;
+	defer c.mpz_clear(&a);
+	defer c.mpz_clear(&b);
+	defer c.mpz_clear(&q);
+	defer c.mpz_clear(&r);
+	c.mpz_init(&a);
+	c.mpz_init(&b);
+	c.mpz_init(&q);
+	c.mpz_init(&r);
+	std.debug.assert(c.mpz_set_str(&a, "2", 10) == 0);
+	std.debug.assert(c.mpz_set_str(&b, "2", 10) == 0);
+	c.mpz_pow_ui(&a, &a, 10000000);
+	c.mpz_sub_ui(&a, &a, 1);
+	
+	c.mpz_pow_ui(&b, &b, 1000000);
+	c.mpz_sub_ui(&b, &b, std.math.maxInt(Limb));
+	c.mpz_mul_2exp(&b, &b, 5000000);
+
+	c.mpz_fdiv_qr(&q, &r, &a, &b);
+
+	// const str: ?[*:0]u8 = c.mpz_get_str(null, 10, &q);
+	// const string = std.mem.span(str.?);
+	// std.debug.print("{s}\n", .{string});
+}
 
 pub fn main() !void {
 	// {
@@ -60,23 +111,31 @@ pub fn main() !void {
 	// try b.pow(&b, 200);
 	// try a.pow(&a, 10);
 	std.debug.print("{} {}\n", .{a.len(), b.len()});
-	// debug("a", a);
-	// debug("b", b);
-	// const res = try div.unbalanced_division(allocator, &a, &b);
-	const res = try div.basecase_div_rem(allocator, &a, &b);
-	// const res = try div.recursive_div_rem(arena.allocator(), &a, &b);
-	
-
 	var q = try Managed.init(allocator);
 	var r = try Managed.init(allocator);
-	try q.divFloor(&r, &a, &b);
-	// debug("q", res.q);
-	// debug("r", res.r);
-	std.debug.print("{} {}\n", .{res.q.len(), res.r.len()});
-	std.debug.print("{} {}\n", .{q.len(), r.len()});
+	const res2 = try div.unbalanced_division(allocator, &a, &b);
+	// const res = try div.basecase_div_rem(allocator, &a, &b);
+	// const res = try div.recursive_div_rem(allocator, &a, &b);
+	// {
+	// 	std.mem.doNotOptimizeAway(&res);
+	// 	return;
+	// }
 
-	if(!q.eql(res.q)) @panic("q != res.q");
-	if(!r.eql(res.r)) @panic("r != res.r");
+
+	// try q.divFloor(&r, &a, &b);
+	try @call(.never_inline, Managed.divFloor, .{&q, &r, &a, &b});
+	// {
+	// 	std.mem.doNotOptimizeAway(&q);
+	// 	return;
+	// }
+	std.mem.doNotOptimizeAway(&q);
+	// std.mem.doNotOptimizeAway(&res);
+	std.mem.doNotOptimizeAway(&res2);
+	// std.debug.print("{} {}\n", .{res.q.len(), res.r.len()});
+	// std.debug.print("{} {}\n", .{q.len(), r.len()});
+    // 
+	// if(!q.eql(res.q)) @panic("q != res.q");
+	// if(!r.eql(res.r)) @panic("r != res.r");
 
 }
 

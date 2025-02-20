@@ -17,280 +17,214 @@ pub const Result = struct {
 	r: Managed
 };
 
+fn _unbalanced_division(q: []Limb, a: []Limb, b: []const Limb) void {
+	std.debug.assert(llnormalize(a) == a.len);
+	std.debug.assert(llnormalize(b) == b.len);
+	const n = b.len;
+	var m = a.len - n;
+	while(m > n) {
+		// TODO: handle the add
+		_recursive_div_rem(q[m-n..m+1], a[m-n..], b);
+		m -= n;
+	}
+	_recursive_div_rem(q[0..m], a[0..llnormalize(a)], b);
+}
 
-fn _unbalanced_division(allocator: Allocator, a: *Managed, b: *Managed) !Result {
+fn __unbalanced_division(allocator: Allocator, a: *Managed, b: *Managed) !Result {
 	var Q = try Managed.init(allocator);
 	var A_ = try Managed.init(allocator);
 	const n = b.len();
 	var m = a.len() - n;
 	while(m > n) {
 		try A_.shiftRight(a, (m - n) * limb_bit_size);
-		var res = try _recursive_div_rem(allocator, &A_, b);
+
+		const q_limbs = try allocator.alloc(Limb, calculateLenQ(A_.len(), b.len()));
+		@memset(q_limbs, 0);
+		const r = try allocator.dupe(Limb, A_.limbs[0..A_.len()]);
+		defer allocator.free(r);
+		defer allocator.free(q_limbs);
+
+		_recursive_div_rem(q_limbs, r, b.limbs[0..b.len()]);
 		// var res = try _recursive_div_rem(allocator, A_.limbs[0..A_.len()], b.limbs[0..b.len()]);
 		try Q.shiftLeft(&Q, n * limb_bit_size);
-		try Q.add(&Q, &res.q);
+		var res_q = try (Const {.limbs = q_limbs, .positive = true}).toManaged(allocator);
+		try Q.add(&Q, &res_q);
 
-		try res.r.shiftLeft(&res.r, (m - n) * limb_bit_size);
+		var res_r = try (Const { .limbs = r, .positive = true}).toManaged(allocator);
+		try res_r.shiftLeft(&res_r, (m - n) * limb_bit_size);
 		try a.truncate(a, .unsigned, (m - n) * limb_bit_size);
-		try a.add(a, &res.r);
+		try a.add(a, &res_r);
 
 		m -= n;
 	}
-	var res = try _recursive_div_rem(allocator, a, b);
+	const q_limbs = try allocator.alloc(Limb, calculateLenQ(a.len(), b.len()));
+	@memset(q_limbs, 0);
+	const r = try allocator.dupe(Limb, a.limbs[0..a.len()]);
+	defer allocator.free(r);
+	defer allocator.free(q_limbs);
+
+	_recursive_div_rem(q_limbs, r, b.limbs[0..b.len()]);
+	const res_r = try (Const { .limbs = r, .positive = true}).toManaged(allocator);
+	var res_q = try (Const {.limbs = q_limbs, .positive = true}).toManaged(allocator);
+	defer res_q.deinit();
+
 	try Q.shiftLeft(&Q, m * limb_bit_size);
-	try Q.add(&Q, &res.q);
+	try Q.add(&Q, &res_q);
 
 	return Result {
 		.q = Q,
-		.r = res.r
+		.r = res_r
 	};
 }
 
 pub fn unbalanced_division(allocator: Allocator, a: *Managed, b: *Managed) !Result {
 	const k = get_normalize_k(b.toConst());
 	var a1 = try a.clone();
-	var b1 = try b.clone();
 	try a1.shiftLeft(a, k);
-	try b1.shiftLeft(b, k);
+	try b.shiftLeft(b, k);
 
-	var res = try _unbalanced_division(allocator, &a1, &b1);
-	try res.r.shiftRight(&res.r, k);
-	return res;
+	const q_limbs = try allocator.alloc(Limb, calculateLenQ(a1.len(), b.len()));
+	@memset(q_limbs, 0);
+
+	_unbalanced_division(q_limbs, a1.limbs[0..a1.len()], b.limbs[0..b.len()]);
+
+	try a1.shiftRight(&a1, k);
+	try b.shiftRight(b, k);
+	const q = Managed {
+		.limbs = q_limbs,
+		.allocator = allocator,
+		.metadata = llnormalize(q_limbs)
+	};
+	return Result {
+		.q = q,
+		.r = a1
+	};
 }
 
 
 const T = 200;
 
-// fn _recursive_div_rem(allocator: Allocator, a__: *Managed, b__: *Managed) !Result {
-fn __recursive_div_rem(allocator: Allocator, a: []const Limb, b: []const Limb) !Result {
-	// var a_ = try a__.clone();
-	// var b_ = try b__.clone();
-	// var a = &a_;
-	// var b = &b_;
-	// if(b.order(a.*) == .gt) return Result {
-	// 	.q = try Managed.initSet(allocator, 0),
-	// 	.r = try a.clone()
-	// };
-	// if(a.eql(b.*)) return Result {
-	// 	.q = try Managed.initSet(allocator, 1),
-	// 	.r = try Managed.initSet(allocator, 0)
-	// };
+fn _recursive_div_rem(q: []Limb, a: []Limb, b: []const Limb) void {
+	// TODO: needed ?
+	// std.debug.assert(llnormalize(a) == a.len);
+	// std.debug.assert(llnormalize(b) == b.len);
+	std.debug.assert(b[b.len - 1] >> (@bitSizeOf(Limb) - 1) == 1); // b[0] >= (2^@bitSizeOf(Limb)) / 2
+	{
+		const order = llcmp(a, b);
+		if(order == -1) {
+			// a < b, r = a, q = 0
+			return;	// q is already zeroes
+		}
+		if(order == 0) {
+			// a == b, r = 0, q = 1
+			@memset(a, 0);
+			q[0] = 1;
+			return;	// q is already zeroes
+		}
+	}
 
 	const n = b.len;
 	const m = a.len - n;
 	std.debug.assert(n >= m);
 
 	if(m < T) {
-		var a_ = Managed {
-			.limbs = a,
-			.allocator = allocator,
-			.metadata = a.len
-		};
-		var b_ = Managed {
-			.limbs = b,
-			.allocator = allocator,
-			.metadata = b.len
-		};
-		return _basecase_div_rem(allocator, &a_, &b_);
+		_basecase_div_rem(q, a, b);
+		return;
 	}
 
 	const k = m / 2;
-	var B0 = try Managed.init(allocator);
-	var B1 = try Managed.init(allocator);
-	defer B0.deinit();
-	defer B1.deinit();
 
-	try B0.truncate(b, .unsigned, k * limb_bit_size);
-	try B1.shiftRight(b, k * limb_bit_size);
+	const B0 = b[0..llnormalize(b[0..k])];
+	const B1 = b[k..];
+	// TODO: k + 1 ?
+	var Q0 = q[0..k];
+	var Q1 = q[k..];
+	var R1 = a[2*k..];
+	{
+		// TODO: normalize needed ?
+		_recursive_div_rem(Q1, R1[0..llnormalize(R1)], B1);
 
-	// var A0 = try Managed.init(allocator);
-	// try A0.truncate(a, .unsigned, 2 * k * limb_bit_size);
-	const A_mod_limbs = a.limbs[0..2*k];
 
-	// var A_rec_1 = try Managed.init(allocator);
-	// defer A_rec_1.deinit();
-	// try A_rec_1.shiftRight(a, 2 * k * limb_bit_size);
-	const A_rec_1_limbs = a.limbs[2*k..a.len()];
+		Q1 = Q1[0..llnormalize(Q1)];
+		// TODO: need the better version ? (see llmulacc)
+		var a_is_negative = if(Q1.len > B0.len) 
+			llmulaccLongWithOverflowOffset(.sub, a, Q1, B0, k)
+		else
+			llmulaccLongWithOverflowOffset(.sub, a, B0, Q1, k);
 
-	const res1 = try _recursive_div_rem(allocator, A_rec_1_limbs, &B1);
-	var Q1 = res1.q;
-	var A_ = res1.r;
-	var Q1B0 = try Q1.clone();
-	try Q1B0.mul(&Q1B0, &B0);
-	try Q1B0.shiftLeft(&Q1B0, k * limb_bit_size);
-
-	try A_.shiftLeft(&A_, 2 * k * limb_bit_size);
-	lladd(A_.limbs, A_.limbs, A_mod_limbs);
-	// try A_.add(&A_, &A0);
-	try A_.sub(&A_, &Q1B0);
-
-	try b.shiftLeft(b, k * limb_bit_size);
-	while(!A_.isPositive()) {
-		try Q1.addScalar(&Q1, -1);
-		try A_.add(&A_, b);
+		while(a_is_negative) {
+			// TODO: better function
+			llsub(Q1, Q1, &[_]Limb {1});
+			// while a is negative, it is in twos complement
+			// once it becomes positive, this add overflows
+			a_is_negative = lladdcarryoffsetright(a, a, b, k) == 0;
+		}
 	}
-	try b.shiftRight(b, k * limb_bit_size);
+	// TODO: exercise 1.20
 
+	var R0 = a[k..];
+	{
+		_recursive_div_rem(Q0, R0[0..llnormalize(R0)], B1);
 
-	var A_rec_0 = try Managed.init(allocator);
-	defer A_rec_0.deinit();
-	try A_rec_0.shiftRight(&A_, k * limb_bit_size);
+		// TODO: check if Q0 can overflow
+		Q0 = Q0[0..llnormalize(Q0)];
+		var a_is_negative = if(Q0.len > B0.len) 
+			llmulaccLongWithOverflowOffset(.sub, a, Q0, B0, 0)
+		else
+			llmulaccLongWithOverflowOffset(.sub, a, B0, Q0, 0);
 
-	const res0 = try _recursive_div_rem(allocator, &A_rec_0, &B1);
-	var Q0 = res0.q;
-	var A__ = res0.r;
-	var Q0B0 = try Q0.clone();
-	try Q0B0.mul(&Q0B0, &B0);
-
-	try A_.truncate(&A_, .unsigned, k * limb_bit_size);
-
-	try A__.shiftLeft(&A__, k * limb_bit_size);
-	try A__.add(&A__, &A_);
-	try A__.sub(&A__, &Q0B0);
-
-	while(!A__.isPositive()) {
-		try Q0.addScalar(&Q0, -1);
-		try A__.add(&A__, b);
+		while(a_is_negative) {
+			llsub(Q0, Q0, &[_]Limb{1});
+			// TODO: no offset version ?
+			a_is_negative = lladdcarryoffsetright(a, a, b, 0) == 0;
+		}
 	}
-
-	try Q1.shiftLeft(&Q1, k * limb_bit_size);
-	try Q1.add(&Q1, &Q0);
-	return Result {
-		.q = Q1,
-		.r = A__
-	};
 }
-
-
-fn _recursive_div_rem(allocator: Allocator, a__: *Managed, b__: *Managed) !Result {
-	var a_ = try a__.clone();
-	var b_ = try b__.clone();
-	var a = &a_;
-	var b = &b_;
-	if(b.order(a.*) == .gt) return Result {
-		.q = try Managed.initSet(allocator, 0),
-		.r = try a.clone()
-	};
-	if(a.eql(b.*)) return Result {
-		.q = try Managed.initSet(allocator, 1),
-		.r = try Managed.initSet(allocator, 0)
-	};
-
-	const n = b.len();
-	const m = a.len() - n;
-	std.debug.assert(n >= m);
-
-	if(m < T) {
-		const a_limbs = a.limbs[0..a.len()];
-		const b_limbs = b.limbs[0..b.len()];
-		const q_limbs = try allocator.alloc(Limb, calculateLenQ(a.len(), b.len()));
-
-		_basecase_div_rem(q_limbs, a_limbs, b_limbs);
-
-		const q = Managed {
-			.limbs = q_limbs,
-			.allocator = allocator,
-			.metadata = llnormalize(q_limbs)
-		};
-		a.normalize(a.len());
-
-		return Result {
-			.q = q,
-			.r = a.*
-		};
-	}
-
-	const k = m / 2;
-	var B0 = try Managed.init(allocator);
-	var B1 = try Managed.init(allocator);
-	defer B0.deinit();
-	defer B1.deinit();
-
-	try B0.truncate(b, .unsigned, k * limb_bit_size);
-	try B1.shiftRight(b, k * limb_bit_size);
-
-	var A0 = try Managed.init(allocator);
-	try A0.truncate(a, .unsigned, 2 * k * limb_bit_size);
-
-	var A_rec_1 = try Managed.init(allocator);
-	defer A_rec_1.deinit();
-	try A_rec_1.shiftRight(a, 2 * k * limb_bit_size);
-
-	const res1 = try _recursive_div_rem(allocator, &A_rec_1, &B1);
-	var Q1 = res1.q;
-	var A_ = res1.r;
-	var Q1B0 = try Q1.clone();
-	try Q1B0.mul(&Q1B0, &B0);
-	try Q1B0.shiftLeft(&Q1B0, k * limb_bit_size);
-
-	try A_.shiftLeft(&A_, 2 * k * limb_bit_size);
-	try A_.add(&A_, &A0);
-	try A_.sub(&A_, &Q1B0);
-
-	try b.shiftLeft(b, k * limb_bit_size);
-	while(!A_.isPositive()) {
-		try Q1.addScalar(&Q1, -1);
-		try A_.add(&A_, b);
-	}
-	try b.shiftRight(b, k * limb_bit_size);
-
-
-	var A_rec_0 = try Managed.init(allocator);
-	defer A_rec_0.deinit();
-	try A_rec_0.shiftRight(&A_, k * limb_bit_size);
-
-	const res0 = try _recursive_div_rem(allocator, &A_rec_0, &B1);
-	var Q0 = res0.q;
-	var A__ = res0.r;
-	var Q0B0 = try Q0.clone();
-	try Q0B0.mul(&Q0B0, &B0);
-
-	try A_.truncate(&A_, .unsigned, k * limb_bit_size);
-
-	try A__.shiftLeft(&A__, k * limb_bit_size);
-	try A__.add(&A__, &A_);
-	try A__.sub(&A__, &Q0B0);
-
-	while(!A__.isPositive()) {
-		try Q0.addScalar(&Q0, -1);
-		try A__.add(&A__, b);
-	}
-
-	try Q1.shiftLeft(&Q1, k * limb_bit_size);
-	try Q1.add(&Q1, &Q0);
-	return Result {
-		.q = Q1,
-		.r = A__
-	};
-}
-
 
 
 
 pub fn recursive_div_rem(allocator: Allocator, a: *Managed, b: *Managed) !Result {
-	std.debug.assert(b.len() >= a.len() - b.len());
+	// n >= m
+	std.debug.assert(2*b.len() >= a.len());
 
 	const k = get_normalize_k(b.toConst());
 	var a1 = try a.clone();
-	var b1 = try b.clone();
 	try a1.shiftLeft(a, k);
-	try b1.shiftLeft(b, k);
+	try b.shiftLeft(b, k);
 
-	var res = try _recursive_div_rem(allocator, &a1, &b1);
-	try res.r.shiftRight(&res.r, k);
-	return res;
+	const q_limbs = try allocator.alloc(Limb, calculateLenQ(a1.len(), b.len()));
+	@memset(q_limbs, 0);
+
+	_recursive_div_rem(q_limbs, a1.limbs[0..a1.len()], b.limbs[0..b.len()]);
+	try a1.shiftRight(&a1, k);
+	try b.shiftRight(b, k);
+	const q = Managed {
+		.limbs = q_limbs,
+		.allocator = allocator,
+		.metadata = llnormalize(q_limbs)
+	};
+	return Result {
+		.q = q,
+		.r = a1
+	};
 }
 
 fn calculateLenQ(a_len: usize, b_len: usize) usize {
 	return a_len - b_len + 1;
 }
 
+
+fn print(comptime format: []const u8, args: anytype, depth: usize) void {
+	const writer = std.io.getStdErr().writer();
+	writer.writeByteNTimes(' ', depth) catch @panic("failed to print");
+	writer.print(format, args) catch @panic("failed to print");
+}
 /// Algorithm 1.6 (BasecaseDivRem), Modern Computer Arithmetic
 /// q = a / b rem r
 /// at the end, r is written in a
 /// a and q must be normalized after calling this function TODO: really ?
 /// q.len must be at least calculateLenQ(llnormalize(a), llnormalize(b))
-fn _basecase_div_rem(q: []Limb, a: []Limb, b: []const Limb) void {
+noinline fn _basecase_div_rem(q: []Limb, a: []Limb, b: []const Limb) void {
 	{
 		const order = llcmp(a, b);
 		std.debug.assert(get_normalize_k_limbs(b) == 0);
@@ -303,7 +237,7 @@ fn _basecase_div_rem(q: []Limb, a: []Limb, b: []const Limb) void {
 	}
 	const n = b.len;
 	const m = a.len - n;
-	std.debug.assert(q.len == m + 1);
+	std.debug.assert(q.len >= m + 1);
 
 	// A >= (B << m * bits)  <=>  (A >> m*bits) >= B ????? TODO (i think yes)
 	// step 1
@@ -393,7 +327,22 @@ fn get_normalize_k_limbs(a: []const Limb) usize {
 
 
 
+/// r = r (op) a * b << offset * bits
+noinline fn llmulaccLongWithOverflowOffset(comptime op: AccOp, r: []Limb, a: []const Limb, b: []const Limb, offset: usize) bool {
+    @setRuntimeSafety(debug_safety);
+	// std.debug.print("{} {}\n", .{a.len, llnormalize(a)});
+    assert(r.len >= a.len);
+    assert(a.len >= b.len);
 
+    var i: usize = 0;
+	// TODO: does it work ?
+	var has_overflowed = false;
+    while (i < b.len) : (i += 1) {
+        if(llmulLimbOffset(op, r[i..], a, b[i], offset))
+			has_overflowed = true;
+    }
+	return has_overflowed;
+}
 
 
 
@@ -474,7 +423,7 @@ const assert = std.debug.assert;
 
 
 
-fn lladdcarryoffsetright(r: []Limb, a: []const Limb, b: []const Limb, k: usize) Limb {
+noinline fn lladdcarryoffsetright(r: []Limb, a: []const Limb, b: []const Limb, k: usize) Limb {
     @setRuntimeSafety(debug_safety);
     assert(a.len != 0 and b.len != 0);
     assert(a.len >= k + b.len);
@@ -763,7 +712,7 @@ fn subMulLimbWithBorrow(a: Limb, b: Limb, c: Limb, carry: *Limb) Limb {
 
 
 /// Returns -1, 0, 1 if |a| < |b|, |a| == |b| or |a| > |b| respectively for limbs.
-pub fn llcmp(a: []const Limb, b: []const Limb) i8 {
+pub noinline fn llcmp(a: []const Limb, b: []const Limb) i8 {
     @setRuntimeSafety(debug_safety);
     const a_len = llnormalize(a);
     const b_len = llnormalize(b);
