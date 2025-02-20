@@ -224,13 +224,21 @@ fn print(comptime format: []const u8, args: anytype, depth: usize) void {
 /// at the end, r is written in a
 /// a and q must be normalized after calling this function TODO: really ?
 /// q.len must be at least calculateLenQ(llnormalize(a), llnormalize(b))
-noinline fn _basecase_div_rem(q: []Limb, a: []Limb, b: []const Limb) void {
+/// TODO: version where q is written in a directly ?
+pub noinline fn _basecase_div_rem(q: []Limb, a: []Limb, b: []const Limb) void {
+	const order = llcmp(a, b);
+	if(order == 0) {
+		// a = b
+		q[0] = 1;
+		@memset(a, 0);
+		return;
+	}
+	if(order == -1) {
+		// a < b
+		return;
+	}
 	{
-		const order = llcmp(a, b);
 		std.debug.assert(get_normalize_k_limbs(b) == 0);
-		// if order is 0 or -1, we have a <= b
-		// therefore this function shouldn't have been called
-		std.debug.assert(order == 1);
 		// TODO: useful ?
 		std.debug.assert(llnormalize(a) == a.len);
 		std.debug.assert(llnormalize(b) == b.len);
@@ -259,7 +267,11 @@ noinline fn _basecase_div_rem(q: []Limb, a: []Limb, b: []const Limb) void {
 		// 	((@as(DoubleLimb, b[n-1]) << limb_bit_size) + @as(TripleLimb, b[n - 2]));
 		// see exercise 1.20
 		// step 3
-		const Q_limb_j = std.mem.bytesToValue(TripleLimb, a[n+j-2..n+j+1]) / std.mem.bytesToValue(DoubleLimb, b[n-2..n]);
+		// TODO: fix that
+		const Q_limb_j = if(a.len > 3 and b.len > 1)
+			std.mem.bytesToValue(TripleLimb, a[n+j-2..n+j+1]) / std.mem.bytesToValue(DoubleLimb, b[n-2..n])
+			else
+				std.mem.bytesToValue(DoubleLimb, a[n+j-1..n+j+1]) / b[n-1];
 		// step 4
 		const qj = @as(Limb, @min(Q_limb_j, std.math.maxInt(Limb)));
 		q[j] = qj;
@@ -740,7 +752,7 @@ pub noinline fn llcmp(a: []const Limb, b: []const Limb) i8 {
 }
 
 /// returns the min length the limb could be.
-fn llnormalize(a: []const Limb) usize {
+pub fn llnormalize(a: []const Limb) usize {
     @setRuntimeSafety(debug_safety);
     var j = a.len;
     while (j > 0) : (j -= 1) {
