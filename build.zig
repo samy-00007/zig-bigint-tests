@@ -26,10 +26,10 @@ pub fn build(b: *std.Build) void {
 		.cwd_relative = "./gmp/gmp-6.3.0"
 	});
 
-	// exe.addLibraryPath(.{.cwd_relative = "gmp/gmp-6.3.0/.libs/"});
+	exe.addLibraryPath(.{.cwd_relative = "gmp/gmp-6.3.0/.libs/"});
 
-	// exe.linkSystemLibrary("gmp");
-	// exe.linkLibC();
+	exe.linkSystemLibrary("gmp");
+	exe.linkLibC();
 
     // This declares intent for the executable to be installed into the
     // standard location when the user invokes the "install" step (the default
