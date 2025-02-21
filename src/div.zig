@@ -17,7 +17,7 @@ pub const Result = struct {
 	r: Managed
 };
 
-fn _unbalanced_division(q: []Limb, a: []Limb, b: []const Limb) void {
+pub fn _unbalanced_division(q: []Limb, a: []Limb, b: []const Limb) void {
 	std.debug.assert(llnormalize(a) == a.len);
 	std.debug.assert(llnormalize(b) == b.len);
 	const n = b.len;
@@ -30,7 +30,7 @@ fn _unbalanced_division(q: []Limb, a: []Limb, b: []const Limb) void {
 	_recursive_div_rem(q[0..m], a[0..llnormalize(a)], b);
 }
 
-fn __unbalanced_division(allocator: Allocator, a: *Managed, b: *Managed) !Result {
+pub fn __unbalanced_division(allocator: Allocator, a: *Managed, b: *Managed) !Result {
 	var Q = try Managed.init(allocator);
 	var A_ = try Managed.init(allocator);
 	const n = b.len();
@@ -104,7 +104,7 @@ pub fn unbalanced_division(allocator: Allocator, a: *Managed, b: *Managed) !Resu
 
 const T = 200;
 
-fn _recursive_div_rem(q: []Limb, a: []Limb, b: []const Limb) void {
+pub fn _recursive_div_rem(q: []Limb, a: []Limb, b: []const Limb) void {
 	// TODO: needed ?
 	// std.debug.assert(llnormalize(a) == a.len);
 	// std.debug.assert(llnormalize(b) == b.len);
@@ -214,7 +214,7 @@ pub fn calculateLenQ(a_len: usize, b_len: usize) usize {
 }
 
 
-fn print(comptime format: []const u8, args: anytype, depth: usize) void {
+pub fn print(comptime format: []const u8, args: anytype, depth: usize) void {
 	const writer = std.io.getStdErr().writer();
 	writer.writeByteNTimes(' ', depth) catch @panic("failed to print");
 	writer.print(format, args) catch @panic("failed to print");
@@ -318,7 +318,7 @@ pub fn get_normalize_k(a: Const) usize {
 	return @clz(a.limbs[a.limbs.len - 1]);
 }
 
-fn get_normalize_k_limbs(a: []const Limb) usize {
+pub fn get_normalize_k_limbs(a: []const Limb) usize {
 	{
 		var is_zero = true;
 		for(a) |x| {
@@ -360,7 +360,7 @@ noinline fn llmulaccLongWithOverflowOffset(comptime op: AccOp, r: []Limb, a: []c
 
 
 /// r = (in[0] << offsets[0] * bits) op0 
-fn llopoffest(r: []Limb, in: [][]const Limb, comptime ops: []const AccOp, offsets: []usize) void {
+pub fn llopoffest(r: []Limb, in: [][]const Limb, comptime ops: []const AccOp, offsets: []usize) void {
 	_ = r;
 	assert(in.len == ops.len + 1 and offsets.len == in.len);
 	// TODO
@@ -368,7 +368,7 @@ fn llopoffest(r: []Limb, in: [][]const Limb, comptime ops: []const AccOp, offset
 
 
 /// r = (a << offset_a * limb_bits) - (b << offset_b * limb_bits)
-fn llsubcarryoffset(r: []Limb, a: []const Limb, b: []const Limb, offset_a: usize, offset_b: usize) Limb {
+pub fn llsubcarryoffset(r: []Limb, a: []const Limb, b: []const Limb, offset_a: usize, offset_b: usize) Limb {
     @setRuntimeSafety(debug_safety);
     assert(a.len != 0 and b.len != 0);
     assert(offset_a + a.len >= offset_b + b.len);
@@ -414,7 +414,7 @@ fn llsubcarryoffset(r: []Limb, a: []const Limb, b: []const Limb, offset_a: usize
 }
 
 
-fn llsuboffset(r: []Limb, a: []const Limb, b: []const Limb, offset_a: usize, offset_b: usize) void {
+pub fn llsuboffset(r: []Limb, a: []const Limb, b: []const Limb, offset_a: usize, offset_b: usize) void {
     @setRuntimeSafety(debug_safety);
     assert(offset_a + a.len > offset_b + b.len or (offset_a + a.len == offset_b + b.len and a[a.len - 1] >= b[b.len - 1]));
     assert(llsubcarryoffset(r, a, b, offset_a, offset_b) == 0);
@@ -465,7 +465,7 @@ noinline fn lladdcarryoffsetright(r: []Limb, a: []const Limb, b: []const Limb, k
     return carry;
 }
 
-fn lladdoffsetright(r: []Limb, a: []const Limb, b: []const Limb, k: usize) void {
+pub fn lladdoffsetright(r: []Limb, a: []const Limb, b: []const Limb, k: usize) void {
     @setRuntimeSafety(debug_safety);
     assert(r.len >= a.len + 1);
     r[a.len] = lladdcarryoffsetright(r, a, b, k);
@@ -473,7 +473,7 @@ fn lladdoffsetright(r: []Limb, a: []const Limb, b: []const Limb, k: usize) void 
 
 
 
-fn lladdcarry(r: []Limb, a: []const Limb, b: []const Limb) Limb {
+pub fn lladdcarry(r: []Limb, a: []const Limb, b: []const Limb) Limb {
     @setRuntimeSafety(debug_safety);
     assert(a.len != 0 and b.len != 0);
     assert(a.len >= b.len);
@@ -499,7 +499,7 @@ fn lladdcarry(r: []Limb, a: []const Limb, b: []const Limb) Limb {
     return carry;
 }
 
-fn lladd(r: []Limb, a: []const Limb, b: []const Limb) void {
+pub fn lladd(r: []Limb, a: []const Limb, b: []const Limb) void {
     @setRuntimeSafety(debug_safety);
     assert(r.len >= a.len + 1);
     r[a.len] = lladdcarry(r, a, b);
@@ -507,7 +507,7 @@ fn lladd(r: []Limb, a: []const Limb, b: []const Limb) void {
 
 
 /// r = (a << @bitSizeOf(Limb) * k) - b
-fn llsubcarryoffsetleft(r: []Limb, a: []const Limb, b: []const Limb, k: usize) Limb {
+pub fn llsubcarryoffsetleft(r: []Limb, a: []const Limb, b: []const Limb, k: usize) Limb {
     @setRuntimeSafety(debug_safety);
     assert(a.len != 0 and b.len != 0);
     assert(k + a.len >= b.len);
@@ -542,7 +542,7 @@ fn llsubcarryoffsetleft(r: []Limb, a: []const Limb, b: []const Limb, k: usize) L
 }
 
 /// r = (a << @bitSizeOf(Limb) * k) - b
-fn llsuboffsetleft(r: []Limb, a: []const Limb, b: []const Limb, k: usize) void {
+pub fn llsuboffsetleft(r: []Limb, a: []const Limb, b: []const Limb, k: usize) void {
     @setRuntimeSafety(debug_safety);
     assert(a.len + k > b.len or (a.len + k == b.len and a[a.len - 1] >= b[b.len - 1]));
     assert(llsubcarryoffsetleft(r, a, b, k) == 0);
@@ -550,7 +550,7 @@ fn llsuboffsetleft(r: []Limb, a: []const Limb, b: []const Limb, k: usize) void {
 
 
 /// r = a - (b << @bitSizeOf(Limb) * k)
-fn llsubcarryoffsetright(r: []Limb, a: []const Limb, b: []const Limb, k: usize) Limb {
+pub fn llsubcarryoffsetright(r: []Limb, a: []const Limb, b: []const Limb, k: usize) Limb {
     @setRuntimeSafety(debug_safety);
     assert(a.len != 0 and b.len != 0);
     assert(a.len >= k + b.len);
@@ -580,7 +580,7 @@ fn llsubcarryoffsetright(r: []Limb, a: []const Limb, b: []const Limb, k: usize) 
 }
 
 /// r = a - (b << @bitSizeOf(Limb) * k)
-fn llsuboffsetright(r: []Limb, a: []const Limb, b: []const Limb, k: usize) void {
+pub fn llsuboffsetright(r: []Limb, a: []const Limb, b: []const Limb, k: usize) void {
     @setRuntimeSafety(debug_safety);
     assert(a.len > k + b.len or (a.len == k + b.len and a[a.len - 1] >= b[b.len - 1]));
     assert(llsubcarryoffsetright(r, a, b, k) == 0);
@@ -589,7 +589,7 @@ fn llsuboffsetright(r: []Limb, a: []const Limb, b: []const Limb, k: usize) void 
 
 
 
-fn llsubcarry(r: []Limb, a: []const Limb, b: []const Limb) Limb {
+pub fn llsubcarry(r: []Limb, a: []const Limb, b: []const Limb) Limb {
     @setRuntimeSafety(debug_safety);
     assert(a.len != 0 and b.len != 0);
     assert(a.len >= b.len);
@@ -615,7 +615,7 @@ fn llsubcarry(r: []Limb, a: []const Limb, b: []const Limb) Limb {
     return borrow;
 }
 
-fn llsub(r: []Limb, a: []const Limb, b: []const Limb) void {
+pub fn llsub(r: []Limb, a: []const Limb, b: []const Limb) void {
     @setRuntimeSafety(debug_safety);
     assert(a.len > b.len or (a.len == b.len and a[a.len - 1] >= b[b.len - 1]));
     assert(llsubcarry(r, a, b) == 0);
@@ -634,7 +634,7 @@ const AccOp = enum {
 /// acc = acc (op) (y * xi << y_offset * limb_bits)
 /// The result is computed modulo `r.len`.
 /// Returns whether the operation overflowed.
-fn llmulLimbOffset(comptime op: AccOp, acc: []Limb, y: []const Limb, xi: Limb, y_offset: usize) bool {
+pub fn llmulLimbOffset(comptime op: AccOp, acc: []Limb, y: []const Limb, xi: Limb, y_offset: usize) bool {
     @setRuntimeSafety(debug_safety);
     if (xi == 0) {
         return false;
@@ -705,7 +705,7 @@ pub fn addMulLimbWithCarry(a: Limb, b: Limb, c: Limb, carry: *Limb) Limb {
 
 
 /// a - b * c - *carry, sets carry to the overflow bits
-fn subMulLimbWithBorrow(a: Limb, b: Limb, c: Limb, carry: *Limb) Limb {
+pub fn subMulLimbWithBorrow(a: Limb, b: Limb, c: Limb, carry: *Limb) Limb {
     // ov1[0] = a - *carry
     const ov1 = @subWithOverflow(a, carry.*);
 
