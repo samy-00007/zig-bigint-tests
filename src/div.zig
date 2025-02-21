@@ -209,7 +209,7 @@ pub fn recursive_div_rem(allocator: Allocator, a: *Managed, b: *Managed) !Result
 	};
 }
 
-fn calculateLenQ(a_len: usize, b_len: usize) usize {
+pub fn calculateLenQ(a_len: usize, b_len: usize) usize {
 	return a_len - b_len + 1;
 }
 
@@ -313,7 +313,7 @@ pub fn basecase_div_rem(allocator: Allocator, a: *Managed, b: *Managed) !Result 
 	};
 }
 
-fn get_normalize_k(a: Const) usize {
+pub fn get_normalize_k(a: Const) usize {
 	if(a.eqlZero()) @panic("trying to normalize 0");
 	return @clz(a.limbs[a.limbs.len - 1]);
 }

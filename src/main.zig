@@ -16,6 +16,78 @@ const allocator = gpa.allocator();
 var arena = std.heap.ArenaAllocator.init(allocator);
 
 
+
+
+const div2 = @import("div2.zig");
+
+pub fn main() !void {
+	if(false) {
+		const A = Const { .positive = true, .limbs = &[_]Limb { 0, 0, 0, 121654 } };
+		var B = try (Const { .positive = true, .limbs = &[_]Limb { 0, (1 << 63) + 12345} }).toManaged(allocator);
+		const Q: Const, const R: Const = try div2.D_2n_1n(allocator, A, &B);
+		std.debug.print("Q: {}\n", .{Q});
+		std.debug.print("R: {}\n", .{R});
+
+		const Q2, const R2 = try div2.school_division(allocator, A, &B);
+		std.debug.print("Q2: {}\n", .{Q2});
+		std.debug.print("R2: {}\n", .{R2});
+	}
+
+	{
+		var a = try Managed.init(allocator);
+		var b = try Managed.init(allocator);
+		try a.set(1);
+		try a.shiftLeft(&a, 10000000);
+		try a.addScalar(&a, -1);
+		try b.set(1);
+		try b.shiftLeft(&b, 1000000);
+		try b.addScalar(&b, -std.math.maxInt(Limb));
+		try b.shiftLeft(&b, 5000000);
+
+		const Q, const R = try div2.D_r_s(allocator, &a, &b);
+		// const Q, const R = try div2.D_2n_1n(allocator, a.toConst(), &b);
+		const Q2, const R2 = try div2.school_division(allocator, a.toConst(), &b);
+		var q = try Managed.init(allocator);
+		var r = try Managed.init(allocator);
+
+		try @call(.never_inline, Managed.divFloor, .{&q, &r, &a, &b});
+		// try q.divFloor(&r, &a, &b);
+		// std.debug.print("{any}\n{any}\n", .{Q.limbs[0..div.llnormalize(Q.limbs)], q.limbs[0..q.len()]});
+		std.debug.print("{} {} {}\n", .{Q.limbs.len, Q2.limbs.len, q.len()});
+		std.debug.print("{} {}\n", .{div.llnormalize(Q.limbs), div.llnormalize(Q2.limbs)});
+		std.debug.print("{} {}\n", .{div.llnormalize(R.limbs), div.llnormalize(R.limbs)});
+		std.debug.assert(Q.eql(Q2));
+		std.debug.assert(R.eql(R2));
+		std.mem.doNotOptimizeAway(&q);
+		std.mem.doNotOptimizeAway(&r);
+		// std.debug.print("Q: {}\n", .{Q});
+		// std.debug.print("R: {}\n", .{R});
+	}
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 // const digits_per_limb = 9; //math.log(math.big.Limb, 10, math.maxInt(math.big.Limb));
 
 const N_bench = 1;
@@ -54,7 +126,7 @@ const div_free_naive_trunc = toString.div_free_naive_trunc;
 
 const digits_per_limb = toString.digits_per_limb;
 
-pub fn main() !void {
+pub fn amain() !void {
 	c.mp_set_memory_functions(&alloc, &realloc, &free);
 
 	var a = try Managed.initSet(allocator, 1);
