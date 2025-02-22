@@ -28,7 +28,7 @@ const constants: Constants = blk: {
 const div = @import("div.zig");
 
 
-pub fn subquadratic(allocator: std.mem.Allocator, a: *Managed, b: u8) ![]u8 {
+pub fn subquadratic(allocator: std.mem.Allocator, a: *const Managed, b: u8) ![]u8 {
     var string = try allocator.alloc(u8, size_in_base_upper_bound(a.bitCountAbs(), 10));
     @memset(string, 0);
 
@@ -144,7 +144,7 @@ pub fn subquadratic_iter(allocator: std.mem.Allocator, A: *Managed, b: u8) ![]u8
     return full_string;
 }
 
-pub noinline fn basecase(allocator: std.mem.Allocator, string: []u8, a: *Managed, base: u8) !void {
+pub noinline fn basecase(allocator: std.mem.Allocator, string: []u8, a: *const Managed, base: u8) !void {
     var string_len: usize = string.len;
     //var num = try allocator.dupe(Limb, a.limbs[0..div.llnormalize(a.limbs)]);
     var num = a.limbs[0..a.len()];
@@ -160,7 +160,7 @@ pub noinline fn basecase(allocator: std.mem.Allocator, string: []u8, a: *Managed
 	var c = try (Const { .limbs = &[_]Limb {big_base}, .positive = true }).toManaged(allocator);
 
     while (num_len > 1) {
-        div._basecase_div_rem(limb_buffer, num[0..num_len], &[_]Limb{big_base});
+        div._basecase_div_rem(limb_buffer, num[0..num_len], &[_]Limb{big_base}, true);
 		try b.divTrunc(&R, &b, &c);
 		// std.debug.print("{} {} {}\n", .{num[0], R.limbs[0], num[0] == R.limbs[0]});
 		std.debug.assert(num[0] == R.limbs[0]);
@@ -202,7 +202,7 @@ pub noinline fn basecase(allocator: std.mem.Allocator, string: []u8, a: *Managed
 }
 
 const subquadra_threshold = 12;
-fn subquadratic_rec(allocator: std.mem.Allocator, k: usize, string: []u8, a: *Managed, b: u8) !void {
+fn subquadratic_rec(allocator: std.mem.Allocator, k: usize, string: []u8, a: *const Managed, b: u8) !void {
     // 2k because the k passed to the function is the number of digits of the bottom half of a
     // if (2 * k < constants.digits_per_limb[b]) {
     //     std.debug.assert(a.len() <= 1);
