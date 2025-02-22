@@ -50,19 +50,23 @@ fn DivThreeHalvesByTwo(a1: HalfLimb, a2: HalfLimb, a3: HalfLimb, b1: HalfLimb, b
 const llnormalize = div.llnormalize;
 
 pub fn school_division(allocator: Allocator, A: Const, B: *Managed) D_error!struct { Const, Const } {
-	const q_limbs = try allocator.alloc(Limb, div.calculateLenQ(llnormalize(A.limbs), B.len()));
-	const a_limbs = try allocator.dupe(Limb, A.limbs[0..llnormalize(A.limbs)]);
-	const b_limbs = try allocator.dupe(Limb, B.limbs[0..B.len()]);
+	const q_len = div.calculateLenQ(llnormalize(A.limbs), B.len());
+	const a_len = llnormalize(A.limbs);
+	const allocation = try allocator.alloc(Limb, q_len + a_len);
+	defer allocator.free(allocation);
+
+	const q_limbs = allocation[0..q_len];
+	const a_limbs = allocation[q_len..];
+	@memcpy(a_limbs, A.limbs[0..a_len]);
+
+	const b_limbs = B.limbs[0..B.len()];
+
 	@memset(q_limbs, 0);
 	div._basecase_div_rem(q_limbs, a_limbs, b_limbs, false);
-	// var Q = try Managed.init(allocator);
-	// var R = try Managed.init(allocator);
-	// try Q.divFloor(&R, &(try A.toManaged(allocator)), B);
 
-	// return .{ Q.toConst(), R.toConst() };
 	return .{
-		Const { .positive = true, .limbs = q_limbs[0..llnormalize(q_limbs)] },
-		Const { .positive = true, .limbs = a_limbs[0..llnormalize(a_limbs)] }
+		Const { .positive = true, .limbs = try allocator.dupe(Limb, q_limbs[0..llnormalize(q_limbs)]) },
+		Const { .positive = true, .limbs = try allocator.dupe(Limb, a_limbs[0..llnormalize(a_limbs)]) }
 	};
 }
 
@@ -71,24 +75,33 @@ const div = @import("div.zig");
 const D_error = std.mem.Allocator.Error;
 
 
-const DIV_LIMIT = 2;
+const DIV_LIMIT = 50;
 
 const limb_bits = @bitSizeOf(Limb);
 
 
 // B must be normalized
-pub fn D_2n_1n(allocator: Allocator, A: Const, B: Const) !struct { Const, Const } {
-	const n = B.limbs.len;
+pub fn D_2n_1n(allocator: Allocator, A_: Const, B_: Const) !struct { Const, Const } {
+	var A = try A_.toManaged(allocator);
+	var B = try B_.toManaged(allocator);
+	const k = div.get_normalize_k(B_);
+	try A.shiftLeft(&A, k);
+	try B.shiftLeft(&B, k);
+
+	const n = B.len();
 	const Q = try allocator.alloc(Limb, n);
 	const a = try allocator.alloc(Limb, 2*n);
+	@memset(Q, 0);
 	@memset(a, 0);
-	const A_limbs = A.limbs[0..llnormalize(A.limbs)];
+	const A_limbs = A.limbs[0..A.len()];
 	@memcpy(a[0..A_limbs.len], A_limbs);
-	_D_2n_1n(Q, a, B.limbs);
+	try _D_2n_1n(allocator, Q, a, B.limbs[0..n]);
+
+	llshr(a[0..n], a[0..n], k);
 
 	return .{
-		Const { .positive = true, .limbs = Q },
-		Const { .positive = true, .limbs = try allocator.realloc(a, n) }
+		Const { .positive = true, .limbs = try allocator.realloc(Q, llnormalize(Q)) },
+		Const { .positive = true, .limbs = try allocator.realloc(a, llnormalize(a[0..n])) }
 	};
 }
 
@@ -113,7 +126,8 @@ pub fn _D_2n_1n(Q: []Limb, A: []Limb, B: []const Limb) void {
 	}
 
 	if(n % 2 == 1 or n <= DIV_LIMIT) {
-		return div._basecase_div_rem(Q, A, B, false);
+		div._basecase_div_rem(Q, A[0..llnormalize(A)], B, false);
+		return;
 	}
 
 	const AH = A[k..];
@@ -136,7 +150,7 @@ pub fn _D_3n_2n(Q: []Limb, A: []Limb, B: []const Limb) void {
 		std.debug.assert(Q.len == n);
 		// preconditions
 		// β^2n / 2 <= B < β^2n
-		std.debug.assert(B[n - 1] >> (@bitSizeOf(Limb) - 1) == 1); // ensure B is normalized
+		std.debug.assert(B[B.len - 1] >> (@bitSizeOf(Limb) - 1) == 1); // ensure B is normalized
 
 		// try B.shiftLeft(B, n * limb_bits);
 		// std.debug.assert(B.toConst().order(A) == .gt); // A < β^n * B
@@ -160,6 +174,8 @@ pub fn _D_3n_2n(Q: []Limb, A: []Limb, B: []const Limb) void {
 
 	// TODO: check if possible to use A[0..2*n] instead
 	const R = A;
+	// const D = try mul(allocator, Const { .positive = true, .limbs = Q }, Const { .positive = true, .limbs = B[0..n] });
+	// var R_is_negative = div.llsubcarry(R, R, D.limbs) != 0;
 	var R_is_negative = div.llmulaccLongWithOverflowOffset(.sub, R, Q, B[0..n], 0);
 
 	while(R_is_negative) {
@@ -189,8 +205,11 @@ fn int(fl: anytype) usize {
 }
 
 
-pub fn D_r_s(allocator: Allocator, A: *Managed, B: *Managed) !struct { Const, Const } {
-	const s = B.len();
+// pub fn D_r_s(allocator: Allocator, A: *Managed, B: *Managed) !struct { Const, Const } {
+// B must be softly normalized (using llnormalize)
+// and A must have 1 extra capacity to allow the normalization step
+pub fn D_r_s(allocator: Allocator, A: Const, B: Const) !struct { Const, Const } {
+	const s = B.limbs.len;
 	const k = int(std.math.log2(f(s) / f(DIV_LIMIT))) + 1;
 	const m = std.math.pow(usize, 2, k);
 	std.debug.assert(std.math.pow(usize, 2, k) * DIV_LIMIT > s);
@@ -199,48 +218,122 @@ pub fn D_r_s(allocator: Allocator, A: *Managed, B: *Managed) !struct { Const, Co
 	const j: usize = @intFromFloat(@ceil(f(s) / f(m)));
 	const n = j * m;
 
-	const sigma = div.get_normalize_k(B.toConst());
-	try A.shiftLeft(A, sigma);
-	try B.shiftLeft(B, sigma);
+	const sigma = n * limb_bits - B.bitCountAbs();
 
-	// TODO: better
+	// step 5
+	// t is determined before the shift so we only allocate once
 	const t = blk: {
-		var beta = try Managed.initSet(allocator, 1);
-		var l: usize = 2;
-		try beta.shiftLeft(&beta, l * n * limb_bits);
-		try beta.shiftRight(&beta, 1); // div by 2
-		while(A.order(beta) != .lt) {
-			l += 1;
-			try beta.shiftLeft(&beta, limb_bits * n);
-		}
-		break :blk l;
+		// bit count of a after the shift
+		const new_bit_count = A.bitCountAbs() + sigma;
+		// limb count of a after the shift
+		const limbs_len = new_bit_count / limb_bits + @intFromBool(new_bit_count % limb_bits != 0);
+		// upper part of the most significant byte of A after the shift
+		// we only care about its leftmost bit, so no need for its lower part
+		const leftmost_byte = A.limbs[A.limbs.len - 1] << @intCast(sigma % limb_bits);
+		const l = limbs_len / n;
+		const rem = limbs_len % n;
+		if(rem == 0)
+			break :blk
+				if(leftmost_byte >> 63 == 1)
+					l + 1 // A >= β^(n*l) / 2
+				else
+					l;
+		break :blk l + 1;
 	};
 
-	var q_limbs = try allocator.alloc(Limb, (t-1) * n);
-	@memset(q_limbs, 0);
+	const allocation = try allocator.alloc(Limb, n + t*n + (t-1) * n);
+	defer allocator.free(allocation);
 
-	var z_limbs = try allocator.alloc(Limb, 2 * n);
-	@memset(z_limbs, 0);
-	@memcpy(z_limbs[0..A.len()], A.limbs[(t-2)*n..A.len()]);
+	const B_limbs = allocation[0..n];
+	@memcpy(B_limbs[0..B.limbs.len], B.limbs);
+	@memset(B_limbs[B.limbs.len..], 0);
 
+
+	// TODO: better
+	var R = allocation[n..n + t*n];
+	@memcpy(R[0..A.limbs.len], A.limbs);
+	@memset(R[A.limbs.len..], 0);
+
+	llshl(R, R[0..A.limbs.len], sigma);
+	llshl(B_limbs, B_limbs[0..B.limbs.len], sigma);
+
+	const Q = allocation[n + t*n..n + t*n + n * (t - 1)];
+	@memset(Q, 0);
+
+	// R is written in A[0..n]
 	for(0..t-2 + 1) |j_| {
 		const i = t-2 - j_;
+		const Z = R[i * n .. (i + 2) * n];
 
-		const Z = Const { .positive = true, .limbs = z_limbs[0..div.llnormalize(z_limbs)] };
-		const Q, const R = try _D_2n_1n(allocator, Z, B);
-		@memset(z_limbs, 0);
-		if(i > 0)
-			@memcpy(z_limbs[0..n], A.limbs[(i-1) * n..i*n]);
-		@memcpy(z_limbs[n..n + R.limbs.len], R.limbs);
-
-		std.debug.assert(Q.limbs.len <= n);
-		@memcpy(q_limbs[i*n..i*n + Q.limbs.len], Q.limbs);
+		_D_2n_1n(Q[i*n..(i+1)*n], Z, B_limbs);
 	}
 
+	llshr(R[0..n], R[0..n], sigma);
+
+	const R0 = R[0..n];
 	return .{
-		Const { .positive = true, .limbs = q_limbs[0..div.llnormalize(q_limbs)] },
-		Const { .positive = true, .limbs = z_limbs[n..div.llnormalize(z_limbs)] }
+		Const { .positive = true, .limbs = try allocator.dupe(Limb, Q[0..llnormalize(Q)]) },
+		Const { .positive = true, .limbs = try allocator.dupe(Limb, R0[0..llnormalize(R0)]) }
 	};
 }
 
 
+
+fn llshl(r: []Limb, a: []const Limb, shift: usize) void {
+    @setRuntimeSafety(false);
+    std.debug.assert(a.len >= 1);
+
+    const interior_limb_shift = @as(std.math.big.Log2Limb, @truncate(shift));
+
+    // We only need the extra limb if the shift of the last element overflows.
+    // This is useful for the implementation of `shiftLeftSat`.
+    if (a[a.len - 1] << interior_limb_shift >> interior_limb_shift != a[a.len - 1]) {
+        std.debug.assert(r.len >= a.len + (shift / limb_bits) + 1);
+    } else {
+        std.debug.assert(r.len >= a.len + (shift / limb_bits));
+    }
+
+    const limb_shift = shift / limb_bits + 1;
+
+    var carry: Limb = 0;
+    var i: usize = 0;
+    while (i < a.len) : (i += 1) {
+        const src_i = a.len - i - 1;
+        const dst_i = src_i + limb_shift;
+
+        const src_digit = a[src_i];
+        r[dst_i] = carry | @call(.always_inline, std.math.shr, .{
+            Limb,
+            src_digit,
+            limb_bits - @as(Limb, @intCast(interior_limb_shift)),
+        });
+        carry = (src_digit << interior_limb_shift);
+    }
+
+    r[limb_shift - 1] = carry;
+    @memset(r[0 .. limb_shift - 1], 0);
+}
+
+fn llshr(r: []Limb, a: []const Limb, shift: usize) void {
+    @setRuntimeSafety(false);
+    std.debug.assert(a.len >= 1);
+    std.debug.assert(r.len >= a.len - (shift / limb_bits));
+
+    const limb_shift = shift / limb_bits;
+    const interior_limb_shift = @as(std.math.big.Log2Limb, @truncate(shift));
+
+    var i: usize = 0;
+    while (i < a.len - limb_shift) : (i += 1) {
+        const dst_i = i;
+        const src_i = dst_i + limb_shift;
+
+        const src_digit = a[src_i];
+        const src_digit_next = if (src_i + 1 < a.len) a[src_i + 1] else 0;
+        const carry = @call(.always_inline, std.math.shl, .{
+            Limb,
+            src_digit_next,
+            limb_bits - @as(Limb, @intCast(interior_limb_shift)),
+        });
+        r[dst_i] = carry | (src_digit >> interior_limb_shift);
+    }
+}
