@@ -224,8 +224,10 @@ pub fn print(comptime format: []const u8, args: anytype, depth: usize) void {
 /// at the end, r is written in a
 /// a and q must be normalized after calling this function TODO: really ?
 /// q.len must be at least calculateLenQ(llnormalize(a), llnormalize(b))
+/// q must be full of 0
 /// TODO: version where q is written in a directly ?
-pub noinline fn _basecase_div_rem(q: []Limb, a: []Limb, b: []const Limb) void {
+/// if strict is false, then the caller know q will take at most m limbs
+pub noinline fn _basecase_div_rem(q: []Limb, a: []Limb, b: []const Limb, strict: bool) void {
 	const order = llcmp(a, b);
 	if(order == 0) {
 		// a = b
@@ -245,16 +247,20 @@ pub noinline fn _basecase_div_rem(q: []Limb, a: []Limb, b: []const Limb) void {
 	}
 	const n = b.len;
 	const m = a.len - n;
-	std.debug.assert(q.len >= m + 1);
+	if(strict)
+		std.debug.assert(q.len >= m + 1)
+	else
+		std.debug.assert(q.len >= m);
 
 	// A >= (B << m * bits)  <=>  (A >> m*bits) >= B ????? TODO (i think yes)
 	// step 1
 	if(llcmp(a[m..], b) != -1) {
 		q[m] = 1;
 		llsuboffsetright(a, a, b, m);
-	} else {
-		q[m] = 0;
-	}
+	} 
+	// else {
+	// 	q[m] = 0;
+	// }
 
 	for(0..m) |i| {
 		const j = m-1 - i;
@@ -340,7 +346,7 @@ pub fn get_normalize_k_limbs(a: []const Limb) usize {
 
 
 /// r = r (op) a * b << offset * bits
-noinline fn llmulaccLongWithOverflowOffset(comptime op: AccOp, r: []Limb, a: []const Limb, b: []const Limb, offset: usize) bool {
+pub noinline fn llmulaccLongWithOverflowOffset(comptime op: AccOp, r: []Limb, a: []const Limb, b: []const Limb, offset: usize) bool {
     @setRuntimeSafety(debug_safety);
 	// std.debug.print("{} {}\n", .{a.len, llnormalize(a)});
     assert(r.len >= a.len);
@@ -435,7 +441,7 @@ const assert = std.debug.assert;
 
 
 
-noinline fn lladdcarryoffsetright(r: []Limb, a: []const Limb, b: []const Limb, k: usize) Limb {
+pub noinline fn lladdcarryoffsetright(r: []Limb, a: []const Limb, b: []const Limb, k: usize) Limb {
     @setRuntimeSafety(debug_safety);
     assert(a.len != 0 and b.len != 0);
     assert(a.len >= k + b.len);
@@ -623,7 +629,7 @@ pub fn llsub(r: []Limb, a: []const Limb, b: []const Limb) void {
 
 
 
-const AccOp = enum {
+pub const AccOp = enum {
     /// The computed value is added to the result.
     add,
 

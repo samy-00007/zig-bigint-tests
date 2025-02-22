@@ -21,10 +21,10 @@ var arena = std.heap.ArenaAllocator.init(allocator);
 const div2 = @import("div2.zig");
 
 pub fn main() !void {
-	if(false) {
+	{
 		const A = Const { .positive = true, .limbs = &[_]Limb { 0, 0, 0, 121654 } };
 		var B = try (Const { .positive = true, .limbs = &[_]Limb { 0, (1 << 63) + 12345} }).toManaged(allocator);
-		const Q: Const, const R: Const = try div2.D_2n_1n(allocator, A, &B);
+		const Q: Const, const R: Const = try div2.D_2n_1n(allocator, A, B.toConst());
 		std.debug.print("Q: {}\n", .{Q});
 		std.debug.print("R: {}\n", .{R});
 
@@ -33,7 +33,7 @@ pub fn main() !void {
 		std.debug.print("R2: {}\n", .{R2});
 	}
 
-	{
+	if(false) {
 		var a = try Managed.init(allocator);
 		var b = try Managed.init(allocator);
 		try a.set(1);
@@ -44,8 +44,8 @@ pub fn main() !void {
 		try b.addScalar(&b, -std.math.maxInt(Limb));
 		try b.shiftLeft(&b, 5000000);
 
-		const Q, const R = try div2.D_r_s(allocator, &a, &b);
-		// const Q, const R = try div2.D_2n_1n(allocator, a.toConst(), &b);
+		// const Q, const R = try div2.D_r_s(allocator, &a, &b);
+		const Q, const R = try div2.D_2n_1n(allocator, a.toConst(), b.toConst());
 		const Q2, const R2 = try div2.school_division(allocator, a.toConst(), &b);
 		var q = try Managed.init(allocator);
 		var r = try Managed.init(allocator);

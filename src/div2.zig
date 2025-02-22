@@ -21,8 +21,8 @@ fn DivTwoDigitsByOne(ah: Limb, al: Limb, b: Limb) struct { Limb, Limb } {
     const q1: HalfLimb, const r: Limb = DivThreeHalvesByTwo(AH[0], AH[1], AL[0], B[0], B[1]);
     const R: [*]HalfLimb  = @ptrCast(@constCast(&r));
     const q2: HalfLimb, const S: Limb = DivThreeHalvesByTwo(R[0], R[1], AL[1], B[0], B[1]);
-    return . { 
-      std.mem.bytesToValue(Limb, &[_]HalfLimb {q1, q2}), 
+    return . {
+      std.mem.bytesToValue(Limb, &[_]HalfLimb {q1, q2}),
       S
     };
   }
@@ -54,7 +54,7 @@ pub fn school_division(allocator: Allocator, A: Const, B: *Managed) D_error!stru
 	const a_limbs = try allocator.dupe(Limb, A.limbs[0..llnormalize(A.limbs)]);
 	const b_limbs = try allocator.dupe(Limb, B.limbs[0..B.len()]);
 	@memset(q_limbs, 0);
-	div._basecase_div_rem(q_limbs, a_limbs, b_limbs);
+	div._basecase_div_rem(q_limbs, a_limbs, b_limbs, false);
 	// var Q = try Managed.init(allocator);
 	// var R = try Managed.init(allocator);
 	// try Q.divFloor(&R, &(try A.toManaged(allocator)), B);
@@ -74,153 +74,98 @@ const D_error = std.mem.Allocator.Error;
 const DIV_LIMIT = 2;
 
 const limb_bits = @bitSizeOf(Limb);
-// B must be normalized, and A shifted by the same amount
-// returns .{ Q, R }
-pub fn D_2n_1n(allocator: Allocator, A: Const, B: *Managed) D_error!struct { Const, Const } {
-	const n = B.len();
-	const k = n / 2;
-	{
-		// preconditions
-		// β^n / 2 <= B < β^n
-		std.debug.assert(B.limbs[B.len() - 1] >> (@bitSizeOf(Limb) - 1) == 1); // ensure B is normalized
 
-		try B.shiftLeft(B, n * limb_bits);
-		std.debug.assert(B.toConst().order(A) == .gt); // A < β^n * B
-		try B.shiftRight(B, n * limb_bits);
-	}
 
-	if(n % 2 == 1 or n <= DIV_LIMIT) {
-		return school_division(allocator, A, B);
-	}
-
-	const half = n;
-	const quarter_l = k;
-	const quarter_h = half + k;
-	// TODO: handle when A is not 2n sized (fill with 0)
-	const A1 = Const { .positive = true, .limbs = A.limbs[quarter_h..A.limbs.len] };
-	const A2 = Const { .positive = true, .limbs = A.limbs[half..quarter_h] };
-	const A3 = Const { .positive = true, .limbs = A.limbs[quarter_l..half] };
-	const A4 = Const { .positive = true, .limbs = A.limbs[0..quarter_l] };
-
-	const B1 = Const { .positive = true, .limbs = B.limbs[0..n / 2] };
-	const B2 = Const { .positive = true, .limbs = B.limbs[n / 2..B.len()] };
-
-	{
-		const limbs = try allocator.alloc(Limb, n / 2 + 1);
-		@memset(limbs, 0);
-		limbs[n / 2] = 1;
-		const B_n_2 = Const { .positive = true, .limbs = limbs };
-		for(&[_]Const {A1, A2, A3, A4, B1, B2}) |x| {
-			std.debug.assert(B_n_2.order(x) == .gt);
-		}
-	}
-
-	var AH = Const { .positive = true, .limbs = A.limbs[quarter_l..A.limbs.len] };
-	AH.limbs = AH.limbs[0..div.llnormalize(AH.limbs)];
-	const Q1: Const, const R_1: Const = try D_3n_2n(allocator, AH, B);
-
-	if(false) {
-		var q = try Managed.init(allocator);
-		var r = try Managed.init(allocator);
-		try q.divFloor(&r, &(try AH.toManaged(allocator)), B);
-		std.debug.assert(q.toConst().eql(Q1));
-		std.debug.assert(r.toConst().eql(R_1));
-	}
-
-	const limbs = try allocator.alloc(Limb, 3 * n);
-	@memset(limbs, 0);
-	@memcpy(limbs[0..quarter_l], A4.limbs);
-	@memcpy(limbs[quarter_l..quarter_l + R_1.limbs.len], R_1.limbs);
-
-	var AL = Const { .positive = true, .limbs = limbs };
-	// needed for the order
-	AL.limbs = AL.limbs[0..div.llnormalize(AL.limbs)];
-	const Q2: Const, const R: Const = try D_3n_2n(allocator, AL, B);
-	if(false) {
-		var q = try Managed.init(allocator);
-		var r = try Managed.init(allocator);
-		try q.divFloor(&r, &(try AL.toManaged(allocator)), B);
-		std.debug.assert(q.toConst().eql(Q2));
-		std.debug.assert(r.toConst().eql(R));
-	}
-
-	const Q_limbs = try allocator.alloc(Limb, n);
-	@memset(Q_limbs, 0);
-	@memcpy(Q_limbs[0..Q2.limbs.len], Q2.limbs[0..Q2.limbs.len]);
-	std.debug.print("l: {} ({}) {} ({}), {} {}\n", .{Q1.limbs.len, div.llnormalize(Q1.limbs), Q2.limbs.len, div.llnormalize(Q2.limbs), n, k});
-	@memcpy(Q_limbs[k..k + Q1.limbs.len], Q1.limbs);
+// B must be normalized
+pub fn D_2n_1n(allocator: Allocator, A: Const, B: Const) !struct { Const, Const } {
+	const n = B.limbs.len;
+	const Q = try allocator.alloc(Limb, n);
+	const a = try allocator.alloc(Limb, 2*n);
+	@memset(a, 0);
+	const A_limbs = A.limbs[0..llnormalize(A.limbs)];
+	@memcpy(a[0..A_limbs.len], A_limbs);
+	_D_2n_1n(Q, a, B.limbs);
 
 	return .{
-		Const { .positive = true, .limbs = Q_limbs[0..div.llnormalize(Q_limbs)] },
-		R,
+		Const { .positive = true, .limbs = Q },
+		Const { .positive = true, .limbs = try allocator.realloc(a, n) }
 	};
 }
 
 
-pub fn D_3n_2n(allocator: std.mem.Allocator, A: Const, B: *Managed) D_error!struct { Const, Const } {
-	std.debug.assert(B.len() % 2 == 0);
-	const n = B.len() / 2;
+// B must be normalized, and A shifted by the same amount
+// returns .{ Q, R }
+// pub fn D_2n_1n(allocator: Allocator, A: Const, B: *Managed) D_error!struct { Const, Const } {
+// R is written in A[0..n]
+pub fn _D_2n_1n(Q: []Limb, A: []Limb, B: []const Limb) void {
+	const n = B.len;
+	const k = n / 2;
 	{
+		std.debug.assert(Q.len == n);
+		std.debug.assert(A.len == 2*n);
+		// preconditions
+		// β^n / 2 <= B < β^n
+		std.debug.assert(B[n - 1] >> (@bitSizeOf(Limb) - 1) == 1); // ensure B is normalized
+
+		// try B.shiftLeft(B, n * limb_bits);
+		// std.debug.assert(B.toConst().order(A) == .gt); // A < β^n * B
+		// try B.shiftRight(B, n * limb_bits);
+	}
+
+	if(n % 2 == 1 or n <= DIV_LIMIT) {
+		return div._basecase_div_rem(Q, A, B, false);
+	}
+
+	const AH = A[k..];
+	// D_3n_2n writes R1 in AH[0..2k]
+	_D_3n_2n(Q[k..], AH, B);
+
+	const AL = A[0..3*k];
+	// D_3n_2n writes R in AL[0..2k] = A[0..n]
+	_D_3n_2n(Q[0..k], AL, B);
+}
+
+
+// pub fn D_3n_2n(allocator: std.mem.Allocator, A: Const, B: *Managed) D_error!struct { Const, Const } {
+// puts R in A[0..2n]
+pub fn _D_3n_2n(Q: []Limb, A: []Limb, B: []const Limb) void {
+	const n = B.len / 2;
+	{
+		std.debug.assert(B.len % 2 == 0);
+		std.debug.assert(A.len == 3 * n);
+		std.debug.assert(Q.len == n);
 		// preconditions
 		// β^2n / 2 <= B < β^2n
-		std.debug.assert(B.limbs[B.len() - 1] >> (@bitSizeOf(Limb) - 1) == 1); // ensure B is normalized
+		std.debug.assert(B[n - 1] >> (@bitSizeOf(Limb) - 1) == 1); // ensure B is normalized
 
-		try B.shiftLeft(B, n * limb_bits);
-		std.debug.assert(B.toConst().order(A) == .gt); // A < β^n * B
-		try B.shiftRight(B, n * limb_bits);
+		// try B.shiftLeft(B, n * limb_bits);
+		// std.debug.assert(B.toConst().order(A) == .gt); // A < β^n * B
+		// try B.shiftRight(B, n * limb_bits);
 	}
-	const A1 = Const { .positive = true, .limbs = A.limbs[2 * n..A.limbs.len] };
-	const A2 = Const { .positive = true, .limbs = A.limbs[n..2*n] };
-	const A3 = Const { .positive = true, .limbs = A.limbs[0..n] };
-
-	const B1 = Const { .positive = true, .limbs = B.limbs[n..B.len()] };
-	const B2 = Const { .positive = true, .limbs = B.limbs[0..n] };
-	{
-		const limbs = try allocator.alloc(Limb, n + 1);
-		@memset(limbs, 0);
-		limbs[n] = 1;
-		const B_n = Const { .positive = true, .limbs = limbs };
-		for(&[_]Const {A1, A2, A3, B1, B2}) |x| {
-			std.debug.assert(B_n.order(x) == .gt);
-		}
+	const A1 = A[2*n..];
+	const B1 = B[n..];
+	const R1 = A[n..];
+	// llcmp normalizes its inputs
+	if(div.llcmp(A1, B1) == -1) {
+		// A1 < B1
+		_D_2n_1n(Q, A[n..], B[n..]);
+	} else {
+		// Q = β^n - 1
+		Q[n - 1] = std.math.maxInt(Limb);
+		const underflows = div.llsubcarryoffsetright(R1, R1, B1, n) != 0;
+		// not sure if necessary
+		std.debug.assert(!underflows);
+		_ = div.lladdcarry(R1, R1, B1);
 	}
 
-	const AH = Const { .positive = true, .limbs = A.limbs[n..] };
-	const Q_: Const, const R1: Const = blk: {
-		if(A1.order(B1) == .lt) {
-			var B1_ = try B1.toManaged(allocator);
-			const Q_: Const, const R1: Const = try D_2n_1n(allocator, AH, &B1_);
-			break :blk .{ Q_, R1 };
-		} else {
-			const Q_limbs = try allocator.alloc(Limb, n);
-			@memset(Q_limbs, 0);
-			Q_limbs[n - 1] = std.math.maxInt(Limb);
-			const Q_ = Const { .positive = true, .limbs = Q_limbs };
-			
-			var R1 = try AH.toManaged(allocator);
-			var B1_ = try B1.toManaged(allocator);
-			try R1.add(&R1, &B1_);
-			try B1_.shiftLeft(&B1_, n * limb_bits);
-			try R1.sub(&R1, &B1_);
-			break :blk .{ Q_, R1.toConst() };
-		}
-	};
+	// TODO: check if possible to use A[0..2*n] instead
+	const R = A;
+	var R_is_negative = div.llmulaccLongWithOverflowOffset(.sub, R, Q, B[0..n], 0);
 
-	var Q__ = try Q_.toManaged(allocator);
-
-	const D = try (try mul(allocator, Q_, B2)).toManaged(allocator);
-	var R_ = try R1.toManaged(allocator);
-	try R_.shiftLeft(&R_, n * limb_bits);
-	try R_.add(&R_, &(try A3.toManaged(allocator)));
-	try R_.sub(&R_, &D);
-
-	const zero = Const { .positive = true, .limbs = &[_]Limb {0} };
-	std.debug.assert(zero.eqlZero());
-	while(R_.toConst().order(zero) == .lt) {
-		try R_.add(&R_, B);
-		try Q__.addScalar(&Q__, -1);
+	while(R_is_negative) {
+		R_is_negative = div.lladdcarry(R, R, B) == 0;
+		div.llsub(Q, Q, &[_]Limb{1});
 	}
-	return .{ Q__.toConst(), R_.toConst() };
 }
 
 
@@ -282,7 +227,7 @@ pub fn D_r_s(allocator: Allocator, A: *Managed, B: *Managed) !struct { Const, Co
 		const i = t-2 - j_;
 
 		const Z = Const { .positive = true, .limbs = z_limbs[0..div.llnormalize(z_limbs)] };
-		const Q, const R = try D_2n_1n(allocator, Z, B);
+		const Q, const R = try _D_2n_1n(allocator, Z, B);
 		@memset(z_limbs, 0);
 		if(i > 0)
 			@memcpy(z_limbs[0..n], A.limbs[(i-1) * n..i*n]);
