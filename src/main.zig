@@ -6,10 +6,11 @@ const Const = big.int.Const;
 const Managed = big.int.Managed;
 const Mutable = big.int.Mutable;
 
-const c = @cImport({
-	@cInclude("stdio.h");
-	@cInclude("gmp.h");
-});
+// const c = @cImport({
+// @cInclude("stdio.h");
+// @cInclude("gmp.h");
+// });
+const c = opaque {};
 
 var gpa = std.heap.GeneralPurposeAllocator(.{}){};
 const allocator = gpa.allocator();
@@ -21,7 +22,7 @@ var arena = std.heap.ArenaAllocator.init(allocator);
 const div2 = @import("div2.zig");
 
 pub fn main() !void {
-	{
+	if(false){
 		const A = Const { .positive = true, .limbs = &[_]Limb { 0, 0, 0, 121654 } };
 		var B = try (Const { .positive = true, .limbs = &[_]Limb { 0, (1 << 63) + 12345} }).toManaged(allocator);
 		const Q: Const, const R: Const = try div2.D_2n_1n(allocator, A, B.toConst());
@@ -33,9 +34,12 @@ pub fn main() !void {
 		std.debug.print("R2: {}\n", .{R2});
 	}
 
-	if(false) {
+	defer _ = gpa.deinit();
+	{
 		var a = try Managed.init(allocator);
 		var b = try Managed.init(allocator);
+		defer a.deinit();
+		defer b.deinit();
 		try a.set(1);
 		try a.shiftLeft(&a, 10000000);
 		try a.addScalar(&a, -1);
@@ -44,24 +48,29 @@ pub fn main() !void {
 		try b.addScalar(&b, -std.math.maxInt(Limb));
 		try b.shiftLeft(&b, 5000000);
 
-		// const Q, const R = try div2.D_r_s(allocator, &a, &b);
-		const Q, const R = try div2.D_2n_1n(allocator, a.toConst(), b.toConst());
+		// try b.shiftLeft(&b, 29312);
+		// try a.shiftLeft(&a, 29312);
+
+		const Q, const R = try div2.D_r_s(allocator, a.toConst(), b.toConst());
+		// const Q, const R = try div2.D_2n_1n(allocator, a.toConst(), b.toConst());
 		const Q2, const R2 = try div2.school_division(allocator, a.toConst(), &b);
 		var q = try Managed.init(allocator);
 		var r = try Managed.init(allocator);
+		defer q.deinit();
+		defer r.deinit();
+		defer allocator.free(Q.limbs);
+		defer allocator.free(R.limbs);
+		defer allocator.free(Q2.limbs);
+		defer allocator.free(R2.limbs);
+
 
 		try @call(.never_inline, Managed.divFloor, .{&q, &r, &a, &b});
+
 		// try q.divFloor(&r, &a, &b);
-		// std.debug.print("{any}\n{any}\n", .{Q.limbs[0..div.llnormalize(Q.limbs)], q.limbs[0..q.len()]});
-		std.debug.print("{} {} {}\n", .{Q.limbs.len, Q2.limbs.len, q.len()});
-		std.debug.print("{} {}\n", .{div.llnormalize(Q.limbs), div.llnormalize(Q2.limbs)});
-		std.debug.print("{} {}\n", .{div.llnormalize(R.limbs), div.llnormalize(R.limbs)});
 		std.debug.assert(Q.eql(Q2));
 		std.debug.assert(R.eql(R2));
 		std.mem.doNotOptimizeAway(&q);
 		std.mem.doNotOptimizeAway(&r);
-		// std.debug.print("Q: {}\n", .{Q});
-		// std.debug.print("R: {}\n", .{R});
 	}
 }
 
@@ -138,11 +147,11 @@ pub fn amain() !void {
 	c.mpz_set_ui(&b, 1);
 	c.mpz_mul_2exp(&b, &b, 100000);
 	// {
-	// 	// const str = try a.toString(allocator, 10, .upper);
-	// 	const str = try @call(.never_inline, Managed.toString, .{a, allocator, 10, .upper});
-	// 	// const str = try toString.naiveToString(allocator, a.toConst(), 10);
-	// 	// std.debug.print("{s}\n", .{str});
-	// 	std.mem.doNotOptimizeAway(&str);
+	// // const str = try a.toString(allocator, 10, .upper);
+	// const str = try @call(.never_inline, Managed.toString, .{a, allocator, 10, .upper});
+	// // const str = try toString.naiveToString(allocator, a.toConst(), 10);
+	// // std.debug.print("{s}\n", .{str});
+	// std.mem.doNotOptimizeAway(&str);
 	// }
 	{
 		const str = try subquadratic(allocator, &a, 10);
@@ -198,15 +207,15 @@ pub fn ___main() !void {
 
 pub fn ______main() !void {
 	// {
-	// 	var c = try Managed.initSet(allocator, 11);
-	// 	var d = try Managed.initSet(allocator, -2);
-	// 	// try q.divFloor(&r, &c, &d);
-	// 	const res = try div.unbalanced_division(allocator, &c, &d);
-	// 	debug("c", c);
-	// 	debug("d", d);
-	// 	debug("q", res.q);
-	// 	debug("r", res.r);
-	// 	return;
+	// var c = try Managed.initSet(allocator, 11);
+	// var d = try Managed.initSet(allocator, -2);
+	// // try q.divFloor(&r, &c, &d);
+	// const res = try div.unbalanced_division(allocator, &c, &d);
+	// debug("c", c);
+	// debug("d", d);
+	// debug("q", res.q);
+	// debug("r", res.r);
+	// return;
 	// }
 	// defer _ = gpa.deinit();
 	var a = try Managed.init(allocator);
@@ -233,16 +242,16 @@ pub fn ______main() !void {
 	// const res = try div.basecase_div_rem(allocator, &a, &b);
 	// const res = try div.recursive_div_rem(allocator, &a, &b);
 	// {
-	// 	std.mem.doNotOptimizeAway(&res);
-	// 	return;
+	// std.mem.doNotOptimizeAway(&res);
+	// return;
 	// }
 
 
 	// try q.divFloor(&r, &a, &b);
 	try @call(.never_inline, Managed.divFloor, .{&q, &r, &a, &b});
 	// {
-	// 	std.mem.doNotOptimizeAway(&q);
-	// 	return;
+	// std.mem.doNotOptimizeAway(&q);
+	// return;
 	// }
 	std.mem.doNotOptimizeAway(&q);
 	// std.mem.doNotOptimizeAway(&res);
@@ -304,8 +313,8 @@ pub fn _main() !void {
 
 
 pub fn debug(name: []const u8, n: anytype) void {
-	std.debug.print("{s}: {s}\n", .{name, n.toString(allocator, 10, .upper) catch unreachable});
-	// std.debug.print("{s}: {s}\n", .{name, subquadratic(arena.allocator(), n, 10) catch unreachable});
+	// std.debug.print("{s}: {s}\n", .{name, n.toString(allocator, 10, .upper) catch unreachable});
+	std.debug.print("{s}: {s}\n", .{name, subquadratic(arena.allocator(), n, 10) catch unreachable});
 }
 
 
