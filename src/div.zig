@@ -259,7 +259,7 @@ pub noinline fn _basecase_div_rem(q: []Limb, a: []Limb, b: []const Limb, strict:
 		llsuboffsetright(a, a, b, m);
 	} 
 	// else {
-	// 	q[m] = 0;
+	// q[m] = 0;
 	// }
 
 	for(0..m) |i| {
@@ -270,7 +270,7 @@ pub noinline fn _basecase_div_rem(q: []Limb, a: []Limb, b: []const Limb, strict:
 		// TODO: quad limb ?
 		const TripleLimb = std.meta.Int(.unsigned, 3 * limb_bit_size);
 		// const Q_limb_j = ((@as(TripleLimb, a_limbs[n + j]) << (2*limb_bit_size)) + (@as(TripleLimb, a_limbs[n + j - 1]) << limb_bit_size) + @as(TripleLimb, a_limbs[n + j - 2])) /
-		// 	((@as(DoubleLimb, b[n-1]) << limb_bit_size) + @as(TripleLimb, b[n - 2]));
+		// ((@as(DoubleLimb, b[n-1]) << limb_bit_size) + @as(TripleLimb, b[n - 2]));
 		// see exercise 1.20
 		// step 3
 		// TODO: fix that
